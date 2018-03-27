@@ -44,6 +44,12 @@ for i in "${@:1:$(($#-1))}"; do
 	if [ $i == "tt" ]; then
 		query=$query"tt[typicalTime]"
 	fi
+	if [ $i == "th" ]; then
+		query=$query"th[typicalHour]"
+	fi
+	if [ $i == "tm" ]; then
+		query=$query"tm[typicalMinute]"
+	fi
 	if [ $i == "dc" ]; then
 		query=$query"dc[dataCategory]"
 	fi
