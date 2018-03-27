@@ -29,7 +29,7 @@ DIR_TEMP=/tmp/mss
 DIR_MSS=/home/mss/ftp/files/bufr
 DIR_LOG=$HOME/.metcap/log
 FILE_LOG=$DIR_LOG/bsort.log
-OUT_PATTERN=$DIR_TEMP/mss_[dataCategory]_[dataSubCategory]_[typicalDate].bufr[editionNumber]
+OUT_PATTERN=$DIR_TEMP/mss_[dataCategory]_[internationalDataSubCategory]_[typicalDate]_[typicalHour].bufr[editionNumber]
 
 # -----------------------------
 # DO NOT MODIFY AFTER THIS LINE
