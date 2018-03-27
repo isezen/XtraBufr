@@ -19,8 +19,10 @@
 
 set -o nounset                              # Treat unset variables as an error
 
-DIR_BIN="$HOME/bin"
+DIR_BIN="/usr/local/bufr_tools_bin"
 DIR_BUFR_TOOLS="$HOME/bufr_tools"
+
+mkdir -p $DIR_BIN
 
 mapfile -t files < <(find $DIR_BUFR_TOOLS -maxdepth 1 -type f)
 for i in "${files[@]}"; do
