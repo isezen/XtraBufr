@@ -39,7 +39,7 @@ def get_msg_by_id(bufr_file, msg_id=1):
     return(ret)
 
 
-def extact_msg_by_id(bufr_in, bufr_out, msg_id=1):
+def extract_msg_by_id(bufr_in, bufr_out, msg_id=1):
     bufr = get_msg_by_id(bufr_in, msg_id)
     if bufr is not None:
         with open(bufr_out, 'wb') as f:
@@ -61,7 +61,7 @@ def main():
     bufr_out = sys.argv[3]
 
     try:
-        extact_by_msg_id(bufr_in, bufr_out, int(msg_id))
+        extract_msg_by_id(bufr_in, bufr_out, int(msg_id))
     except CodesInternalError as err:
         sys.stderr.write(err.msg + '\n')
         return(1)
