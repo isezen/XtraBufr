@@ -24,7 +24,7 @@ DIR_BUFR_TOOLS="$HOME/bufr_tools"
 
 mkdir -p $DIR_BIN
 
-mapfile -t files < <(find $DIR_BUFR_TOOLS -maxdepth 1 -type f)
+mapfile -t files < <(find $DIR_BUFR_TOOLS -maxdepth 1 -type f \( -iname \*.py -o -iname \*.sh \))
 for i in "${files[@]}"; do
 	fname=${i##*/}
 	fn=${fname%.*}
