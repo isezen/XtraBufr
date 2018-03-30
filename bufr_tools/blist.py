@@ -90,7 +90,7 @@ def check_args(bufr, args):
         except _ec.CodesInternalError as e:
             continue
         ret.append(val in lv)
-    if any(ret):
+    if all(ret):
         return(True)
     return(False)
 
@@ -122,6 +122,12 @@ def blist(file_name, args={}):
             if not check_args(bufr, header_args):
                 continue
             dataCategory = _ec.codes_get(bufr, 'dataCategory')
+            dataSubCategory = _ec.codes_get(bufr, 'dataSubCategory')
+            idataSubCategory = _ec.codes_get(bufr,
+                                             'internationalDataSubCategory')
+            bufrHeaderCentre = _ec.codes_get(bufr, 'bufrHeaderCentre')
+            bufrHeaderSubCentre = _ec.codes_get(bufr, 'bufrHeaderSubCentre')
+
             # if dataCategory == 0:
             comp = _ec.codes_get(bufr, 'compressedData')
             nos = _ec.codes_get(bufr, 'numberOfSubsets')
@@ -139,6 +145,12 @@ def blist(file_name, args={}):
             msg1 = 'MSG #{} ({} Subsets) [{}]'.format(cnt, nos, str_date)
             if comp == 1:
                 msg1 += ' [Compressed Data]'
+            msg1 += '\n  [HC:{} HsC:{}, DCAT:{}, DsCAT:{}, iDsCAT:{}]'.format(
+                bufrHeaderCentre,
+                bufrHeaderSubCentre,
+                dataCategory,
+                dataSubCategory,
+                idataSubCategory)
             try:
                 _ec.codes_set(bufr, 'unpack', 1)
             except _ec.DecodingError as e:
@@ -156,10 +168,18 @@ def blist(file_name, args={}):
                     bn = _ec.codes_get(bufr2, 'blockNumber')
                     sta_num = _ec.codes_get(bufr2, 'stationNumber')
                     sta_name = _ec.codes_get(bufr2, 'stationOrSiteName')
+                    sta_name = '"{}"'.format(sta_name.title())
+                    lat = _ec.codes_get(bufr2, 'latitude')
+                    lon = _ec.codes_get(bufr2, 'longitude')
+                    lat = '' if lat == _ec.CODES_MISSING_DOUBLE \
+                        else '{:6.2f}'.format(lat)
+                    lon = '' if lon == _ec.CODES_MISSING_DOUBLE \
+                        else '{:6.2f}'.format(lon)
                     statid = bn * 1000 + sta_num
-                    msg = '    {} - {} "{}"'
+                    msg = '    {} - {} {:>22} {} {}'
                     msg = msg.format(str_subset.format('#' + str(i)),
-                                     statid, sta_name.strip().title())
+                                     statid, sta_name.title(),
+                                     lat, lon)
                     ret.append([msg1, msg])
                 _ec.codes_release(bufr2)
             _ec.codes_release(bufr)
