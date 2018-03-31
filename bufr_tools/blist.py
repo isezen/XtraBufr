@@ -36,7 +36,9 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>."""
 # =============================================================================
 
 from __future__ import print_function
-import sys as _sys
+import os as _os
+from sys import stderr as _stderr
+from sys import exit as _exit
 import time as _time
 import argparse as _argparse
 from argparse import RawTextHelpFormatter
@@ -49,6 +51,10 @@ __credits__ = []
 __license__ = "AGPL 3.0"
 __version__ = "0.0.1"
 __status__ = "Production"
+
+
+def eprint(*args, **kwargs):
+    print(*args, file=_stderr, **kwargs)
 
 
 def get_keys(bufr):
@@ -95,23 +101,26 @@ def check_args(bufr, args):
     return(False)
 
 
-def blist(file_name, args={}):
-    """ List content of a bufr file
+def read_msg(file_name, args={}):
+    """ Read content of a bufr file by args parameter
 
     :param file_name: BUFR file name
     :param args: Arguments to filter results
-    :return: List of print results
+    :return: List of read values
     """
 
-    header_keys = ['dataCategory', 'dataSubCategory', 'bufrHeaderCentre',
+    header_keys = ['dataCategory', 'dataSubCategory',
+                   'internationalDataSubCategory', 'bufrHeaderCentre',
+                   'bufrHeaderSubCentre', 'compressedData', 'numberOfSubsets',
                    'typicalDate', 'typicalTime', 'typicalYear', 'typicalMonth',
                    'typicalDay', 'typicalHour', 'typicalMinute',
-                   'compressedData']
-    subset_keys = ['blockNumber', 'stationNumber']
+                   'typicalSecond']
+    subset_keys = ['blockNumber', 'stationNumber', 'stationOrSiteName',
+                   'latitude', 'longitude']
     header_args = {k: v for k, v in args.items() if k in header_keys}
     subset_args = {k: v for k, v in args.items() if k in subset_keys}
 
-    ret = []
+    msg = {}
     cnt = 0
     with open(file_name, 'rb') as f:
         while True:
@@ -121,84 +130,73 @@ def blist(file_name, args={}):
                 break
             if not check_args(bufr, header_args):
                 continue
-            dataCategory = _ec.codes_get(bufr, 'dataCategory')
-            dataSubCategory = _ec.codes_get(bufr, 'dataSubCategory')
-            idataSubCategory = _ec.codes_get(bufr,
-                                             'internationalDataSubCategory')
-            bufrHeaderCentre = _ec.codes_get(bufr, 'bufrHeaderCentre')
-            bufrHeaderSubCentre = _ec.codes_get(bufr, 'bufrHeaderSubCentre')
+            h = {k: _ec.codes_get(bufr, k) for k in header_keys}
 
-            # if dataCategory == 0:
-            comp = _ec.codes_get(bufr, 'compressedData')
-            nos = _ec.codes_get(bufr, 'numberOfSubsets')
-            year = _ec.codes_get(bufr, 'typicalYear')
-            month = _ec.codes_get(bufr, 'typicalMonth')
-            day = _ec.codes_get(bufr, 'typicalDay')
-            hour = _ec.codes_get(bufr, 'typicalHour')
-            minute = _ec.codes_get(bufr, 'typicalMinute')
-            second = _ec.codes_get(bufr, 'typicalSecond')
-            str_date = '{:04d}-{:02d}-{:02d} {:02d}:{:02d}:{:02d}'
-            str_date = str_date.format(year, month, day, hour, minute,
-                                       second)
-            len_subset = len(str(nos)) + 1
-            str_subset = '{{: >{}}}'.format(len_subset)
-            msg1 = 'MSG #{} ({} Subsets) [{}]'.format(cnt, nos, str_date)
-            if comp == 1:
-                msg1 += ' [Compressed Data]'
-            msg1 += '\n  [HC:{} HsC:{}, DCAT:{}, DsCAT:{}, iDsCAT:{}]'.format(
-                bufrHeaderCentre,
-                bufrHeaderSubCentre,
-                dataCategory,
-                dataSubCategory,
-                idataSubCategory)
             try:
                 _ec.codes_set(bufr, 'unpack', 1)
             except _ec.DecodingError as e:
-                print('ERROR: MSG #{} {}'.format(cnt, e.msg),
-                      file=_sys.stderr)
+                eprint('ERROR: MSG #{} {}'.format(cnt, e.msg))
                 continue
-            for i in range(1, nos + 1):
+
+            subset = {}
+            for i in range(1, h['numberOfSubsets'] + 1):
                 try:
                     bufr2 = extract_subset(bufr, i)
                 except _ec.CodesInternalError as e:
-                    msg = 'ERROR: MSG #{} - Subset #{} "{}"'
-                    print(msg.format(cnt, i, e.msg), file=_sys.stderr)
+                    err = 'ERROR: MSG #{} - Subset #{} "{}"'
+                    eprint(err.format(cnt, i, e.msg))
                     continue
                 if check_args(bufr2, subset_args):
-                    bn = _ec.codes_get(bufr2, 'blockNumber')
-                    sta_num = _ec.codes_get(bufr2, 'stationNumber')
-                    sta_name = _ec.codes_get(bufr2, 'stationOrSiteName')
-                    sta_name = '"{}"'.format(sta_name.title())
-                    lat = _ec.codes_get(bufr2, 'latitude')
-                    lon = _ec.codes_get(bufr2, 'longitude')
-                    lat = '' if lat == _ec.CODES_MISSING_DOUBLE \
-                        else '{:6.2f}'.format(lat)
-                    lon = '' if lon == _ec.CODES_MISSING_DOUBLE \
-                        else '{:6.2f}'.format(lon)
-                    statid = bn * 1000 + sta_num
-                    msg = '    {} - {} {:>22} {} {}'
-                    msg = msg.format(str_subset.format('#' + str(i)),
-                                     statid, sta_name.title(),
-                                     lat, lon)
-                    ret.append([msg1, msg])
+                    s = {k: _ec.codes_get(bufr2, k) for k in subset_keys}
+                    s['stationOrSiteName'] = s['stationOrSiteName'].title()
+                    if s['latitude'] == _ec.CODES_MISSING_DOUBLE:
+                        s['latitude'] = None
+                    if s['longitude'] == _ec.CODES_MISSING_DOUBLE:
+                        s['longitude'] = None
+                    subset[i] = s
                 _ec.codes_release(bufr2)
             _ec.codes_release(bufr)
-    return(ret)
+            msg[cnt] = {'header': h, 'subset': subset}
+    return(msg)
 
 
-def print_results(filename, ret):
-    if len(ret) > 0:
-        prev = 0
-        print('File : {}'.format(filename))
-        for i in ret:
-            if i[0] != prev:
-                print(i[0])
-                prev = i[0]
-            print(i[1])
+def print_msg(msg, filename=''):
+    for i, m in msg.items():
+        h = m['header']
+        subset = m['subset']
+        if len(subset) == 0:
+            continue
+        nos = h['numberOfSubsets']
+        str_date = '{:04d}-{:02d}-{:02d} {:02d}:{:02d}:{:02d}'
+        str_date = str_date.format(h['typicalYear'], h['typicalMonth'],
+                                   h['typicalDay'], h['typicalHour'],
+                                   h['typicalMinute'], h['typicalSecond'])
+        msg1 = 'MSG #{} ({} Subsets) [{}]'.format(i, nos, str_date)
+        if h['compressedData'] == 1:
+                msg1 += ' [Compressed Data]'
+        msg1 += '\n  [HC:{} HsC:{}, DCAT:{}, DsCAT:{}, iDsCAT:{}]'.format(
+            h['bufrHeaderCentre'],
+            h['bufrHeaderSubCentre'],
+            h['dataCategory'],
+            h['dataSubCategory'],
+            h['internationalDataSubCategory'])
+        str_subset = '{{: >{}}}'.format(len(str(nos)) + 1)
+        print(msg1)
+        for k, s in subset.items():
+            sta_name = '"{}"'.format(s['stationOrSiteName'])
+            statid = s['blockNumber'] * 1000 + s['stationNumber']
+            lat = '' if s['latitude'] is None \
+                else '{:6.2f}'.format(s['latitude'])
+            lon = '' if s['longitude'] is None \
+                else '{:6.2f}'.format(s['longitude'])
+            msg = '    {} - {} {:>22} {} {}'
+            msg = msg.format(str_subset.format('#' + str(k)),
+                             statid, sta_name, lat, lon)
+            print(msg)
 
 
 def main():
-
+    file_py = _os.path.basename(__file__)
     description = 'Print messages and details of a bufr file.\n' + \
                   'Optional arguments can be used to filter output.\n\n' + \
                   ' N       : An integer Numeric value\n' + \
@@ -227,12 +225,12 @@ def main():
             ['-sn', '--stationNumber', int, 'N', 'Station Number']]
 
     p = _argparse.ArgumentParser(description=description,
-                                 epilog=epilog.format(__file__),
+                                 epilog=epilog.format(file_py),
                                  formatter_class=RawTextHelpFormatter)
     for a in args:
         p.add_argument(a[0], a[1], type=a[2], nargs='+', metavar=a[3],
                        default=None, help=a[4])
-    p.add_argument('bufr_files', type=str, nargs='*',
+    p.add_argument('bufr_files', type=str, nargs='+',
                    help='BUFR files to process\n' +
                         '(at least a single file required)')
 
@@ -246,16 +244,16 @@ def main():
     try:
         for fn in file_names:
             t = _time.clock()
-            ret = blist(fn, args)
+            messages = read_msg(fn, args)
             elapsed_time = _time.clock() - t
-            print_results(fn, ret)
+            print_msg(messages, fn)
             print('Elapsed: {:0.2f} sec.'.format(elapsed_time))
         return(0)
     except _ec.CodesInternalError as err:
-        _sys.stderr.write(err.msg + '\n')
+        eprint(err.msg)
 
     return(1)
 
 
 if __name__ == "__main__":
-    _sys.exit(main())
+    _exit(main())

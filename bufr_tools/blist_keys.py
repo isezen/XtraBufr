@@ -36,7 +36,9 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>."""
 # =============================================================================
 
 from __future__ import print_function
-import sys as _sys
+import os as _os
+from sys import stderr as _stderr
+from sys import exit as _exit
 import time as _time
 import re as _re
 import argparse as _argparse
@@ -50,6 +52,10 @@ __credits__ = []
 __license__ = "AGPL 3.0"
 __version__ = "0.0.1"
 __status__ = "Production"
+
+
+def eprint(*args, **kwargs):
+    print(*args, file=_stderr, **kwargs)
 
 
 def get_keys(bufr):
@@ -100,8 +106,7 @@ def blist_keys(file_name):
             try:
                 _ec.codes_set(bufr, 'unpack', 1)
             except _ec.DecodingError as e:
-                print('ERROR: MSG #{} {}'.format(cnt, e.msg),
-                      file=_sys.stderr)
+                eprint('ERROR: MSG #{} {}'.format(cnt, e.msg))
                 continue
             ret[cnt] = {}
             for i in range(1, nos + 1):
@@ -109,7 +114,7 @@ def blist_keys(file_name):
                     bufr2 = extract_subset(bufr, i)
                 except _ec.CodesInternalError as e:
                     msg = 'ERROR: MSG #{} - Subset #{} "{}"'
-                    print(msg.format(cnt, i, e.msg), file=_sys.stderr)
+                    eprint(msg.format(cnt, i, e.msg))
                     del ret[cnt]
                     break
                 keys = get_keys(bufr2)
@@ -124,8 +129,7 @@ def blist_keys(file_name):
 def print_keys(x, var_name):
     if len(x) == 0:
         return(None)
-    print('# Number of keys = {}'.format(len(x)))
-    print(var_name + ' = [')
+    print(var_name + ' = [  # N = {}'.format(len(x)))
     s = []
     for i, j in enumerate(sorted(list(x))):
         s.append(j)
@@ -244,19 +248,20 @@ def print_key_vals(x):
 
 
 def main():
+    file_py = _os.path.basename(__file__)
     description = 'List keys for each message in a BUFR file.\n'
     epilog = 'Example of use:\n' + \
-             ' {0} input.bufr\n' + \
+             ' {0} -d input.bufr\n' + \
              ' {0} input1.bufr input2.bufr input3.bufr\n' + \
-             ' {0} input*.bufr\n'
+             ' {0} -v input*.bufr\n'
     p = _argparse.ArgumentParser(description=description,
-                                 epilog=epilog.format(__file__),
+                                 epilog=epilog.format(file_py),
                                  formatter_class=RawTextHelpFormatter)
     p.add_argument('-d', '--distinct', help="distinct print",
                    action="store_true")
     p.add_argument('-v', '--values', help="print unique values of keys",
                    action="store_true")
-    p.add_argument('bufr_files', type=str, nargs='*',
+    p.add_argument('bufr_files', type=str, nargs='+',
                    help='BUFR files to process\n' +
                         '(at least a single file required)')
 
@@ -279,10 +284,10 @@ def main():
             print('Elapsed: {:0.2f} sec.'.format(elapsed_time))
         return(0)
     except _ec.CodesInternalError as err:
-        _sys.stderr.write(err.msg + '\n')
+        eprint(err.msg)
 
     return(1)
 
 
 if __name__ == "__main__":
-    _sys.exit(main())
+    _exit(main())

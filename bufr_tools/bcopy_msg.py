@@ -39,7 +39,9 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>."""
 
 
 from __future__ import print_function
-import sys
+from sys import stderr as _stderr
+from sys import exit as _exit
+import os as _os
 import argparse as _argparse
 from argparse import RawTextHelpFormatter
 import eccodes as _ec
@@ -52,6 +54,10 @@ __credits__ = []
 __license__ = "AGPL 3.0"
 __version__ = "0.0.1"
 __status__ = "Production"
+
+
+def eprint(*args, **kwargs):
+    print(*args, file=_stderr, **kwargs)
 
 
 def msg_count(bufr_file):
@@ -73,10 +79,8 @@ def extract_subset(bufr, subset_number):
     :param subset_number: Number of subset
     :returns: Handle to BUFR message contains subset
     """
-    print('extract')
     _ec.codes_set(bufr, 'extractSubset', subset_number)
     _ec.codes_set(bufr, 'doExtractSubsets', 1)
-    print('hello')
     bufr2 = _ec.codes_clone(bufr)
     _ec.codes_set(bufr2, 'unpack', 1)
     return(bufr2)
@@ -127,6 +131,7 @@ def extract_msg_by_id(bufr_in, bufr_out, msg_id=1, subset_id=None):
 
 
 def main():
+    file_py = _os.path.basename(__file__)
     description = 'Copy a message from a BUFR file\n' + \
                   'Also you can copy/extract a subset.\n\n'
     epilog = 'Example of use:\n' + \
@@ -135,7 +140,7 @@ def main():
     args = [['-s', '--subset_id', int, 'N', 'Subset Id']]
 
     p = _argparse.ArgumentParser(description=description,
-                                 epilog=epilog.format(__file__),
+                                 epilog=epilog.format(file_py),
                                  formatter_class=RawTextHelpFormatter)
 
     for a in args:
@@ -150,11 +155,11 @@ def main():
         extract_msg_by_id(args.bufr_in, args.bufr_out,
                           args.msg_id, args.subset_id)
     except _ec.CodesInternalError as err:
-        sys.stderr.write(err.msg + '\n')
+        eprint(err.msg)
         return(1)
 
     return(0)
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    _exit(main())
