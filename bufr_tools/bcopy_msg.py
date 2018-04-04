@@ -137,7 +137,10 @@ def main():
     epilog = 'Example of use:\n' + \
              ' {0} 5 input.bufr out.bufr\n' + \
              ' {0} -s 10 5 input.bufr out.bufr\n'
-    args = [['-s', '--subset_id', int, 'N', 'Subset Id']]
+    # args = [['-s', '--subset_id', int, 'N', 'Subset Id']]
+
+    args = [['-s', '--subset_id', int, 'N', 'Subset Id'],
+            ['-m', '--msg_id', int, 'N', 'Message Id (Mandatory)']]
 
     p = _argparse.ArgumentParser(description=description,
                                  epilog=epilog.format(file_py),
@@ -146,10 +149,16 @@ def main():
     for a in args:
         p.add_argument(a[0], a[1], type=a[2], nargs='?', metavar=a[3],
                        default=None, help=a[4])
-    p.add_argument('msg_id', type=int, help='Message Id')
+        # p.add_argument(a[0], a[1], type=a[2], nargs='?', metavar=a[3],
+        #                default=None, help=a[4])
+    # p.add_argument('msg_id', type=int, help='Message Id')
     p.add_argument('bufr_in', type=str, help='BUFR file to process')
     p.add_argument('bufr_out', type=str, help='Output BUFR file')
     args = p.parse_args()
+
+    if args.msg_id is None:
+        print('msg_id is required')
+        return(1)
 
     try:
         extract_msg_by_id(args.bufr_in, args.bufr_out,
