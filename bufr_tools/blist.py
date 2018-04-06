@@ -197,7 +197,7 @@ def print_msg(msg, filename=''):
 
 def main():
     file_py = _os.path.basename(__file__)
-    description = 'Print messages and details of a bufr file.\n' + \
+    description = 'List messages and details of a bufr file.\n' + \
                   'Optional arguments can be used to filter output.\n\n' + \
                   ' N       : An integer Numeric value\n' + \
                   ' YYYMMDD : Year, Month and day (adjacent)\n' + \
