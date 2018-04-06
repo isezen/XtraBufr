@@ -201,7 +201,7 @@ def read_uncompressed_msg(bufr, msg_id=None, subset_id=None):
             continue
 
         keys = [k for k in get_keys(bufr2) if k not in h.keys()]
-        subset[i] = _od([(k, get_val(bufr, k)) for k in keys])
+        subset[i] = _od([(k, get_val(bufr2, k)) for k in keys])
         _ec.codes_release(bufr2)
     return({'header': h, 'subset': subset})
 
