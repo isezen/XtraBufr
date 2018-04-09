@@ -42,6 +42,7 @@ from sys import exit as _exit
 import time as _time
 import argparse as _argparse
 from argparse import RawTextHelpFormatter
+from numpy import ndarray as _nd
 import eccodes as _ec
 
 __author__ = 'ismail sezen'
@@ -101,6 +102,39 @@ def check_args(bufr, args):
     return(False)
 
 
+def get_val(bufr, key):
+    """Read value of a key in a BUFR message
+
+    :param bufr: Handle to BUFR file
+    :param key: Key value to read
+    :returns: Read value (if value is missing returns None)
+    """
+    size = _ec.codes_get_size(bufr, key)
+    v = None
+    if size == 1:
+        v = _ec.codes_get(bufr, key)
+        if isinstance(v, float):
+            if v == _ec.CODES_MISSING_DOUBLE:
+                v = None
+        if isinstance(v, int):
+            if v == _ec.CODES_MISSING_LONG:
+                v = None
+    else:
+        v = _ec.codes_get_array(bufr, key)
+        if isinstance(v, _nd):
+            v = v.tolist()
+            if isinstance(v[0], int):
+                for i, j in enumerate(v):
+                    if j == _ec.CODES_MISSING_LONG:
+                        v[i] = None
+            if isinstance(v[0], float):
+                for i, j in enumerate(v):
+                    if j == _ec.CODES_MISSING_DOUBLE:
+                        v[i] = None
+        return(v)
+    return(v)
+
+
 def read_msg(file_name, args={}):
     """ Read content of a bufr file by args parameter
 
@@ -114,7 +148,7 @@ def read_msg(file_name, args={}):
                    'bufrHeaderSubCentre', 'compressedData', 'numberOfSubsets',
                    'typicalDate', 'typicalTime', 'typicalYear', 'typicalMonth',
                    'typicalDay', 'typicalHour', 'typicalMinute',
-                   'typicalSecond']
+                   'typicalSecond', 'unexpandedDescriptors']
     subset_keys = ['blockNumber', 'stationNumber', 'stationOrSiteName',
                    'latitude', 'longitude']
     header_args = {k: v for k, v in args.items() if k in header_keys}
@@ -130,7 +164,7 @@ def read_msg(file_name, args={}):
                 break
             if not check_args(bufr, header_args):
                 continue
-            h = {k: _ec.codes_get(bufr, k) for k in header_keys}
+            h = {k: get_val(bufr, k) for k in header_keys}
 
             try:
                 _ec.codes_set(bufr, 'unpack', 1)
@@ -147,7 +181,7 @@ def read_msg(file_name, args={}):
                     eprint(err.format(cnt, i, e.msg))
                     continue
                 if check_args(bufr2, subset_args):
-                    s = {k: _ec.codes_get(bufr2, k) for k in subset_keys}
+                    s = {k: get_val(bufr2, k) for k in subset_keys}
                     s['stationOrSiteName'] = s['stationOrSiteName'].title()
                     if s['latitude'] == _ec.CODES_MISSING_DOUBLE:
                         s['latitude'] = None
@@ -180,6 +214,7 @@ def print_msg(msg, filename=''):
             h['dataCategory'],
             h['dataSubCategory'],
             h['internationalDataSubCategory'])
+        msg1 += '\nunexpDesc: {}'.format(h['unexpandedDescriptors'])
         str_subset = '{{: >{}}}'.format(len(str(nos)) + 1)
         print(msg1)
         for k, s in subset.items():
