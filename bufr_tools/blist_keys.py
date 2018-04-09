@@ -43,6 +43,7 @@ import time as _time
 import re as _re
 import argparse as _argparse
 from argparse import RawTextHelpFormatter
+from numpy import ndarray as _nd
 import eccodes as _ec
 
 __author__ = 'ismail sezen'
@@ -189,6 +190,39 @@ def print_keys_distinct(filename, x):
         print_keys(v - isect, 'uniq_subset{}'.format(i + 1))
 
 
+def get_val(bufr, key):
+    """Read value of a key in a BUFR message
+
+    :param bufr: Handle to BUFR file
+    :param key: Key value to read
+    :returns: Read value (if value is missing returns None)
+    """
+    size = _ec.codes_get_size(bufr, key)
+    v = None
+    if size == 1:
+        v = _ec.codes_get(bufr, key)
+        if isinstance(v, float):
+            if v == _ec.CODES_MISSING_DOUBLE:
+                v = None
+        if isinstance(v, int):
+            if v == _ec.CODES_MISSING_LONG:
+                v = None
+    else:
+        v = _ec.codes_get_array(bufr, key)
+        if isinstance(v, _nd):
+            v = v.tolist()
+            if isinstance(v[0], int):
+                for i, j in enumerate(v):
+                    if j == _ec.CODES_MISSING_LONG:
+                        v[i] = None
+            if isinstance(v[0], float):
+                for i, j in enumerate(v):
+                    if j == _ec.CODES_MISSING_DOUBLE:
+                        v[i] = None
+        return(v)
+    return(v)
+
+
 def blist_key_vals(file_name):
     """ List headaer key vlaues in a bufr file
 
@@ -205,12 +239,16 @@ def blist_key_vals(file_name):
             if bufr is None:
                 break
             keys = get_keys(bufr)
-            keys = [_re.sub('#.*?#', '', k) for k in keys]
+            # keys = [_re.sub('#.*?#', '', k) for k in keys]
             for k in keys:
-                if k not in ['unexpandedDescriptors']:
-                    if k not in ret.keys():
-                        ret[k] = set()
-                    v = _ec.codes_get(bufr, k)
+                # if k not in ['unexpandedDescriptors']:
+                if k not in ret.keys():
+                    ret[k] = set()
+                # v = _ec.codes_get(bufr, k)
+                v = get_val(bufr, k)
+                if isinstance(v, list):
+                    ret[k].update(v)
+                else:
                     ret[k].add(v)
             _ec.codes_release(bufr)
     #
