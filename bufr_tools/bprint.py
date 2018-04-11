@@ -44,6 +44,9 @@ import argparse as _argparse
 from argparse import RawTextHelpFormatter
 from collections import OrderedDict as _od
 from numpy import ndarray as _nd
+from numpy import array as _arr
+from pprint import pformat
+import re as _re
 import eccodes as _ec
 
 __author__ = 'ismail sezen'
@@ -250,6 +253,23 @@ def read_msg(file_name, msg_id=None, subset_id=None):
     return(msg)
 
 
+def print_list(x, key=''):
+    if isinstance(x, list):
+        y = pformat(_arr(x))
+        y = y.replace(', dtype=object)', '')
+        # y = y.replace('dtype=object,', '')
+        y = y.replace('array(', '')
+        y = y.replace(')', '')
+        if '\n' in y:
+            y = y.replace('[', '[\n       ', 1)
+        else:
+            y = _re.sub(' +', ' ', y)
+        y = y.replace('[', '{')
+        y = y.replace(']', '}')
+        print('  {}[{}] = '.format(key, len(x)), end='')
+        print(y)
+
+
 def print_var(key_name, x, tab=0, ignore_missing=False):
     """Print a variable read from BUFR file
 
@@ -274,17 +294,7 @@ def print_var(key_name, x, tab=0, ignore_missing=False):
         if ignore_missing:
             if all([i is None for i in x]):
                 return(None)
-        print(tab + key_name + '={{  # N = {}'.format(len(x)))
-        s = []
-        for i, j in enumerate(x):
-            s.append(str(j))
-            if len(', '.join(s)) > 60:
-                print(tab + '  ' + ', '.join(s), end=',\n')
-                s = []
-            elif len(x) == i + 1:
-                print(tab + '  ' + ', '.join(s))
-                s = []
-        print(tab + '}')
+        print_list(x, key_name)
 
 
 def print_msg(msg, filename='', ignore_missing=False):

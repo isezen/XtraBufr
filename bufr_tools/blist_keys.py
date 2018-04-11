@@ -43,7 +43,9 @@ import time as _time
 import re as _re
 import argparse as _argparse
 from argparse import RawTextHelpFormatter
+from numpy import array as _arr
 from numpy import ndarray as _nd
+from pprint import pformat
 import eccodes as _ec
 
 __author__ = 'ismail sezen'
@@ -130,7 +132,7 @@ def blist_keys(file_name):
 def print_keys(x, var_name):
     if len(x) == 0:
         return(None)
-    print(var_name + ' = [  # N = {}'.format(len(x)))
+    print(var_name + '[{}]={{'.format(len(x)))
     s = []
     for i, j in enumerate(sorted(list(x))):
         s.append(j)
@@ -140,29 +142,12 @@ def print_keys(x, var_name):
         elif len(x) == i + 1:
             print('    ' + ', '.join(s))
             s = []
-    print(']')
+    print('}')
 
 
 def print_results(filename, ret):
     if len(ret) == 0:
         return(None)
-    # DO NOT DELETE
-    # ret2 = {}
-    # for msg_id, v in ret.items():
-    #     ret2[msg_id] = {}
-    #     ck = [set(keys) for _, keys in v.items()]
-    #     ck = set.intersection(*ck)
-    #     ret2[msg_id]['ck'] = ck
-    #     for i, keys in v.items():
-    #         dif = set(keys) - ck
-    #         if len(dif) > 0:
-    #             ret2[msg_id][i] = dif
-    # cks = [ck for _, v in ret2.items() for k, ck in v.items() if k == 'ck']
-    # u = set.intersection(*cks)
-    # for msg_id, v in ret2.items():
-    #         ret2[msg_id]['ck'] = ret2[msg_id]['ck'] - u
-    # others = set(i for _, v in ret2.items() for _, v2 in v.items() for i in v2)
-
     cks = [set(keys) for msg_id, v in ret.items() for _, keys in v.items()]
     u = set.intersection(*cks)
     others = set(k for i in cks for k in i - u)
@@ -239,50 +224,52 @@ def blist_key_vals(file_name):
             if bufr is None:
                 break
             keys = get_keys(bufr)
-            # keys = [_re.sub('#.*?#', '', k) for k in keys]
             for k in keys:
-                # if k not in ['unexpandedDescriptors']:
                 if k not in ret.keys():
-                    ret[k] = set()
-                # v = _ec.codes_get(bufr, k)
+                    ret[k] = list()
                 v = get_val(bufr, k)
-                if isinstance(v, list):
-                    ret[k].update(v)
-                else:
-                    ret[k].add(v)
+                if v not in ret[k]:
+                    ret[k].append(v)
             _ec.codes_release(bufr)
     #
     return(ret)
 
 
+def print_list(x, key=''):
+    if isinstance(x, list):
+        y = pformat(_arr([_arr(i) for i in x], dtype=object))
+        y = y.replace('\n      dtype=object)', '')
+        y = y.replace(', dtype=object)', '')
+        y = y.replace('array(', '')
+        y = y.replace(')', '')
+        if '\n' in y:
+            y = y.replace('[', '[\n       ', 1)
+        else:
+            y = _re.sub(' +', ' ', y)
+        y = y.replace('[', '{')
+        y = y.replace(']', '}')
+        y = y.replace('},', '}')
+        print('{}[{}] = '.format(key, len(x)), end='')
+        print(y)
+
+
 def print_key_vals(x):
+    """Print message
+
+    :param msg: Message to be printed. Must be a proper dict object
+    :param filename: Name of the file to be printed
+    :param ignore_missing: If True, missing values are not printed
+    :returns: None
+    """
     keys = sorted(x.keys())
-    tab = False
     for k in keys:
         v = x[k]
-        variable = '\n{}:{{'.format(k)
-        len_var = len(variable)
-        print(variable, end='')
-        v = sorted(v)
-        s = []
-        first = True
-        for i, j in enumerate(v):
-            s.append(str(j))
-            if len(', '.join(s)) > 60:
-                tab = True
-                if not first:
-                    print(' ' * (len_var - 1), end='')
-                print(', '.join(s), end=',\n')
-                first = False
-                s = []
-            elif len(v) == i + 1:
-                if tab:
-                    print(' ' * (len_var - 1), end='')
-                tab = False
-                print(', '.join(s), end='')
-                s = []
-        print('}', end='')
-    print('\n')
+        if isinstance(v, list) and len(v) == 1:
+            v = v[0]
+        if isinstance(v, list):
+            print_list(v, k)
+        else:
+            print(k, '=', v)
 
 
 def main():
