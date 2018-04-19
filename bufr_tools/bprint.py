@@ -241,8 +241,8 @@ def read_msg(file_name, msg_id=None, subset_id=None):
             if cnt in msg_id:
                 msg_id.remove(cnt)
                 #
-                compressed = get_val(bufr, 'compressedData')
-                fun = read_compressed_msg if compressed == 1 \
+                compressed = get_val(bufr, 'compressedData') == 1
+                fun = read_compressed_msg if compressed \
                     else read_uncompressed_msg
                 m = fun(bufr, cnt, subset_id)
                 msg[cnt] = m
