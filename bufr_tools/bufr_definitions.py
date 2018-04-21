@@ -278,9 +278,6 @@ class descriptor(_MS):
         self._list.insert(i, d)
 
 
-# ----------------------
-
-
 def def_is_in(code, search_in, masterTableVersionNumber='latest'):
     seq = get_sequence_def(masterTableVersionNumber)
 
@@ -323,22 +320,20 @@ def _main_():
     description = 'BUFR Definition operations\n'
     epilog = 'Example of use:\n' + \
              ' {0} 307080\n' + \
+             ' {0} 307079 4025 11042\n' + \
              ' {0} -m 14 307096\n' + \
-             ' {0} -m 22 20010 1003'
-    args = [['-m', '--mastertable', str, 'N', 'Master Table Version Number']]
+             ' {0} -m 22 301004 302031 20010'
 
     p = _argparse.ArgumentParser(description=description,
                                  epilog=epilog.format(file_py),
                                  formatter_class=_rtformatter)
-    for a in args:
-        p.add_argument(a[0], a[1], type=a[2], nargs='?', metavar=a[3],
-                       default=None, help=a[4])
+
+    p.add_argument('-m', '--mastertable', type=str, nargs='?', metavar='N',
+                   default='latest', help='Master Table Version Number')
     p.add_argument('-d', '--description', help="Show description",
                    action="store_true")
     p.add_argument('lookup', type=int, nargs='*', help='Descriptor value(s)')
     args = p.parse_args()
-    if args.mastertable is None:
-        args.mastertable = 'latest'
     try:
         t = _time.clock()
         d = descriptor(args.lookup)
