@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 #
 
-""" bufr_definitions.py : List content of a BUFR file
+""" bufr_definitions.py : BUFR definition operations
 
        USAGE: ./bufr_definitions.py --help
       AUTHOR: Ismail SEZEN (isezen)
@@ -34,27 +34,41 @@ from sys import exit as _exit
 import time as _time
 import argparse as _argparse
 from argparse import RawTextHelpFormatter as _rtformatter
-# from collections import OrderedDict as _od
-# from numpy import ndarray as _nd
-# from numpy import array as _arr
-# from pprint import pformat
+from collections import OrderedDict as _od
 import re as _re
-# import csv as _csv
+from collections import MutableSequence as _MS
 import ctypes as _ct
-import eccodes as _ec
-
 
 _def_catch_ = {}
 
 
-class _entry(_ct.Structure):
-    _fields_ = [("path", _ct.c_char_p),
-                ("content", _ct.POINTER(_ct.c_ubyte)),
-                ("length", _ct.c_size_t)]
-
-
 def eprint(*args, **kwargs):
     print('ERROR: ', *args, file=_stderr, **kwargs)
+
+
+def codes_info(args):
+    if not isinstance(args, list):
+        args = [args]
+    try:
+        ret = _od([(p, _chekout(['codes_info', '-' + p]).strip())
+                   for p in args])
+    except Exception as e:
+        eprint('install ecCodes')
+        _exit(1)
+    if len(ret) == 1:
+        return(ret.values()[0])
+    return(ret)
+
+
+def codes_get_definitions_path():
+    try:
+        eccodes_def_path = _os.environ['ECCODES_DEFINITION_PATH']
+    except KeyError as e:
+        eccodes_def_path = codes_info('d')
+    return(eccodes_def_path)
+
+
+_codes_definition_path_ = codes_get_definitions_path()
 
 
 def _get_lib_path():
@@ -65,34 +79,14 @@ def _get_lib_path():
         return('/opt/local/lib/libeccodes_memfs.dynlib')
 
 
-def parse_codes_info():
-    try:
-        codes_info_out = _chekout('codes_info')
-    except Exception as e:
-        eprint('install ecCodes')
-        _exit(1)
-
-    version = codes_info_out.split('\n')[1].split(' ')[2]
-    regex = r'(\/.*?\/)((?:[^\/]|\\\/)+?)(?:(?<!\\)\s|$)'
-    paths = _re.findall(regex, codes_info_out)
-    def_path = ''.join(paths[0])
-    sample_path = ''.join(paths[1])
-    return({'version': version, 'def': def_path,
-            'sample': sample_path})
-
-
-def codes_get_definitions_path():
-    try:
-        eccodes_def_path = _os.environ['ECCODES_DEFINITION_PATH']
-    except KeyError as e:
-        eccodes_def_path = parse_codes_info()['def']
-    return(eccodes_def_path)
-
-# ----------------------
+class _entry(_ct.Structure):
+    _fields_ = [("path", _ct.c_char_p),
+                ("content", _ct.POINTER(_ct.c_ubyte)),
+                ("length", _ct.c_size_t)]
 
 
 def _get_entry(path):
-    if 'MEMFS' in codes_get_definitions_path():
+    if 'MEMFS' in _codes_definition_path_:
         lib = _ct.cdll.LoadLibrary(_get_lib_path())
         entries = _ct.POINTER(_entry)
         table = entries.in_dll(lib, "entries")
@@ -113,8 +107,7 @@ def _get_entry(path):
 
 
 def get_element_table(masterTableVersionNumber='latest', by_code=True):
-    def_path = codes_get_definitions_path()
-    path = def_path + '/bufr/tables/0/wmo/{}/element.table'
+    path = _codes_definition_path_ + '/bufr/tables/0/wmo/{}/element.table'
     path = path.format(masterTableVersionNumber)
     if path in _def_catch_.keys():
         return(_def_catch_[path])
@@ -132,9 +125,25 @@ def get_element_table(masterTableVersionNumber='latest', by_code=True):
     return(table)
 
 
+def get_bufr_template_def():
+    path = _codes_definition_path_ + '/bufr/templates/BufrTemplate.def'
+    if path in _def_catch_.keys():
+        return(_def_catch_[path])
+    content = _re.sub(r'[ {\[;"\]}]', '', _get_entry(path))
+    ls = [i for i in content.split('\n') if i != '']
+    d = {}
+    for i in range(0, len(ls)):
+        j = ls[i].split('=')
+        v = [int(k) for k in j[2].split(',')]
+        if len(v) == 1:
+            v = v[0]
+        d[str(v)] = j[0]
+    _def_catch_[path] = d
+    return(d)
+
+
 def get_sequence_def(masterTableVersionNumber='latest'):
-    def_path = codes_get_definitions_path()
-    path = def_path + '/bufr/tables/0/wmo/{}/sequence.def'
+    path = _codes_definition_path_ + '/bufr/tables/0/wmo/{}/sequence.def'
     path = path.format(masterTableVersionNumber)
     if path in _def_catch_.keys():
         return(_def_catch_[path])
@@ -151,7 +160,7 @@ def get_sequence_def(masterTableVersionNumber='latest'):
 
 
 def get_code_table(code, masterTableVersionNumber='latest'):
-    def_path = codes_get_definitions_path()
+    def_path = _codes_definition_path_
     path = def_path + '/bufr/tables/0/wmo/{}/codetables/{}.table'
     path = path.format(masterTableVersionNumber, int(code))
     if path in _def_catch_.keys():
@@ -169,45 +178,132 @@ def get_code_table(code, masterTableVersionNumber='latest'):
     return(d)
 
 
+class descriptor(_MS):
+
+    def __init__(self, code, masterTableVersionNumber='latest'):
+        self.__dict__ = {'code': code, 'key': '', 'type': '',
+                         'name': '', 'unit': '', 'descriptors': [],
+                         '_list': []}
+        seq = get_sequence_def(masterTableVersionNumber)
+        et = get_element_table(masterTableVersionNumber)
+        bt = get_bufr_template_def()
+
+        if isinstance(code, list):
+            self.descriptors = code
+            self._list = [descriptor(j) for j in code]
+            self.code = 0
+
+        if code in et.keys():
+            self.key = et[code][0]
+            self.type = et[code][1]
+            self.name = et[code][2]
+            self.unit = et[code][3]
+        elif code in seq.keys():
+            if str(code) in bt.keys():
+                self.key = bt[str(code)]
+            self.descriptors = seq[code]
+            self._list = [descriptor(j) for j in seq[code]]
+
+    def _check(self, v):
+        if not isinstance(v, descriptor):
+            raise(TypeError(v))
+
+    def __repr__(self):
+        s = '\n[{:06d}] {} {}\n' + \
+            'Descriptors = {}\n'
+        return(s.format(self.code, self.name, self.unit, self.descriptors))
+
+    def __str__(self, show_desc=False, tab=0, leading=''):
+        if self.code != 0:
+            str_tab = ' ' * tab
+            sc = '{:06d}'.format(self.code)
+            s = '[{}]'.format(sc, self.key)
+            if leading != '':
+                s = ('\b' * len(leading)) + leading + s
+            if show_desc and self.name != '':
+                    s += ' {}'.format(self.name)
+            else:
+                if self.key != '':
+                    s += ' {}'.format(self.key)
+            if self.unit != '':
+                s += ' ({})'.format(self.unit)
+            if sc[0] == '1':
+                s += ' ({}x{})'.format(int(sc[1:3]), int(sc[3:6]))
+        else:
+            str_tab = ''
+            s = ''
+            tab -= 4
+        i = 0
+        while i < len(self._list):
+            sc2 = '{:06d}'.format(self._list[i].code)
+            s += '\n' + self._list[i].__str__(show_desc, tab + 4)
+            if sc2[0] == '1':
+                sc3 = '{:06d}'.format(self._list[i + 1].code)
+                if sc3[0:3] == '031':
+                    i += 1
+                    s += '\n' + self._list[i].__str__(show_desc, tab + 8,
+                                                      '****')
+                n = int(sc2[1:3])
+                while n > 0:
+                    i += 1
+                    n -= 1
+                    s += '\n' + self._list[i].__str__(show_desc, tab + 8,
+                                                      '....')
+            i += 1
+        return(str_tab + s)
+
+    def __len__(self):
+        """List length"""
+        return(len(self._list))
+
+    def __getitem__(self, i):
+        """Get a list item"""
+        return(self._list[i])
+
+    def __delitem__(self, i):
+        """Delete an item"""
+        del self._list[i]
+
+    def __setitem__(self, i, val):
+        self._check(val)
+        self._list[i] = val
+
+    def insert(self, i, val):
+        self._check(val)
+        self._list.insert(i, val)
+
+    def insert_code(self, i, code, masterTableVersionNumber='latest'):
+        d = descriptor(code, masterTableVersionNumber)
+        self._check(d)
+        self._list.insert(i, d)
+
+
+# ----------------------
+
+
 def def_is_in(code, search_in, masterTableVersionNumber='latest'):
     seq = get_sequence_def(masterTableVersionNumber)
 
     def def_is_in_internal(masterTableVersionNumber, code, search_in):
         if not isinstance(search_in, list):
             search_in = [search_in]
-        if code in search_in:
-            return(True)
-        for k in search_in:
-            if k in seq.keys():
-                for j in seq[k]:
-                    if def_is_in_internal(masterTableVersionNumber, code, j):
-                        return(True)
-        return(False)
-    return(def_is_in_internal(masterTableVersionNumber, code, search_in))
-
-
-def def_lookup(code, masterTableVersionNumber='latest', show_description=True):
-    seq = get_sequence_def(masterTableVersionNumber)
-    et = get_element_table(masterTableVersionNumber)
-
-    def def_lookup_internal(masterTableVersionNumber, code, tab):
         if not isinstance(code, list):
             code = [code]
-        for i in code:
-            str_tab = ' ' * tab
-            s = '{:06d}'.format(i)
-            # if tab == 0:
-            s = '[{}]'.format(s)
-            print(str_tab + s, end='')
-            if i in et.keys():
-                a1 = et[i][0]
-                a2 = et[i][2] if show_description else et[i][3]
-                print(' ' + a1 + ' (' + a2 + ')', end='')
-            print('')
-            if i in seq.keys():
-                for j in seq[i]:
-                    def_lookup_internal(masterTableVersionNumber, j, tab + 4)
-    def_lookup_internal(masterTableVersionNumber, code, 0)
+        ret = [False] * len(code)
+        for i in range(len(code)):
+            if code[i] in search_in:
+                ret[i] = True
+            for k in search_in:
+                if k in seq.keys():
+                    for j in seq[k]:
+                        if def_is_in_internal(masterTableVersionNumber,
+                                              code[i], j):
+                            ret[i] = True
+                            break
+        if len(ret) == 1:
+            ret = ret[0]
+        return(ret)
+    return(def_is_in_internal(masterTableVersionNumber, code, search_in))
 
 
 def get_value_from_code_table(value, code, masterTableVersionNumber='latest'):
@@ -245,8 +341,9 @@ def _main_():
         args.mastertable = 'latest'
     try:
         t = _time.clock()
-        def_lookup(args.lookup, args.mastertable, args.description)
+        d = descriptor(args.lookup)
         elapsed_time = _time.clock() - t
+        print(d.__str__(show_desc=args.description))
         print('Elapsed: {:0.2f} sec.'.format(elapsed_time))
         return(0)
     except Exception as e:
