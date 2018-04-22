@@ -26,6 +26,7 @@ You should have received a copy of the GNU Affero General Public License
 along with this program.  If not, see <http://www.gnu.org/licenses/>."""
 
 from __future__ import print_function
+from __future__ import generators
 import os as _os
 from platform import system as _system
 from subprocess import check_output as _chekout
@@ -37,6 +38,7 @@ from argparse import RawTextHelpFormatter as _rtformatter
 from collections import OrderedDict as _od
 import re as _re
 from collections import MutableSequence as _MS
+from copy import deepcopy as _dcopy
 import ctypes as _ct
 
 _def_catch_ = {}
@@ -149,12 +151,14 @@ def get_sequence_def(masterTableVersionNumber='latest'):
         return(_def_catch_[path])
     content = _get_entry(path)
     ls = _re.split(r" = \[| \]\n", content)
-    d = {}
+    d = _od()
     for i in range(0, len(ls), 2):
         if ls[i] != '':
             k = int(ls[i].replace(' ', '').replace('"', ''))
             v = [int(j) for j in ls[i + 1].replace(' ', '').split(',')]
             d[k] = v
+    # this is required to run shrink method properly.
+    d = _od(sorted(d.iteritems(), key=lambda x: len(x[1])))
     _def_catch_[path] = d
     return(d)
 
@@ -188,8 +192,9 @@ class descriptor(_MS):
         et = get_element_table(masterTableVersionNumber)
         bt = get_bufr_template_def()
 
+        self.masterTableVersionNumber = masterTableVersionNumber
+
         if isinstance(code, list):
-            self.descriptors = code
             self._list = [descriptor(j) for j in code]
             self.code = 0
 
@@ -201,17 +206,21 @@ class descriptor(_MS):
         elif code in seq.keys():
             if str(code) in bt.keys():
                 self.key = bt[str(code)]
-            self.descriptors = seq[code]
             self._list = [descriptor(j) for j in seq[code]]
 
     def _check(self, v):
         if not isinstance(v, descriptor):
             raise(TypeError(v))
 
+    def _check_code(self, v):
+        if not isinstance(v, int):
+            raise(TypeError(v))
+
     def __repr__(self):
         s = '\n[{:06d}] {} {}\n' + \
             'Descriptors = {}\n'
-        return(s.format(self.code, self.name, self.unit, self.descriptors))
+        sub_descriptors = [i.code for i in self._list]
+        return(s.format(self.code, self.name, self.unit, sub_descriptors))
 
     def __str__(self, show_desc=False, tab=0, leading=''):
         if self.code != 0:
@@ -272,10 +281,20 @@ class descriptor(_MS):
         self._check(val)
         self._list.insert(i, val)
 
-    def insert_code(self, i, code, masterTableVersionNumber='latest'):
-        d = descriptor(code, masterTableVersionNumber)
-        self._check(d)
+    def insert_code(self, i, code):
+        self._check_code(code)
+        d = descriptor(code, self.masterTableVersionNumber)
         self._list.insert(i, d)
+
+    def append_code(self, code):
+        self._check_code(code)
+        d = descriptor(code, self.masterTableVersionNumber)
+        self._list.append(d)
+
+    def extend_code(self, code):
+        if not isinstance(code, list):
+            raise(TypeError(code))
+        self._list.extend([descriptor(j) for j in code])
 
 
 def def_is_in(code, search_in, masterTableVersionNumber='latest'):
@@ -301,6 +320,85 @@ def def_is_in(code, search_in, masterTableVersionNumber='latest'):
             ret = ret[0]
         return(ret)
     return(def_is_in_internal(masterTableVersionNumber, code, search_in))
+
+
+def _KnuthMorrisPratt(text, pattern):
+    '''Yields all starting positions of copies of the pattern in the text.
+    Calling conventions are similar to string.find, but its arguments can be
+    lists or iterators, not just strings, it returns all matches, not jus
+    the first one, and it does not need the whole text in memory at once.
+    Whenever it yields, it will have read the text exactly up to and including
+    the match that caused the yield.
+
+    see: http://code.activestate.com/recipes/117214/
+    '''
+
+    # allow indexing into pattern and protect against change during yield
+    pattern = list(pattern)
+
+    # build table of shift amounts
+    shifts = [1] * (len(pattern) + 1)
+    shift = 1
+    for pos in range(len(pattern)):
+        while shift <= pos and pattern[pos] != pattern[pos - shift]:
+            shift += shifts[pos - shift]
+        shifts[pos + 1] = shift
+
+    # do the actual search
+    startPos = 0
+    matchLen = 0
+    for c in text:
+        while (matchLen == len(pattern) or
+               matchLen >= 0 and pattern[matchLen] != c):
+            startPos += shifts[matchLen]
+            matchLen -= shifts[matchLen]
+        matchLen += 1
+        if matchLen == len(pattern):
+            yield startPos
+
+
+def shrink_descriptors(code, depth=99, masterTableVersionNumber='latest'):
+    seq = get_sequence_def(masterTableVersionNumber)
+    # WARNING: order of sequence by length is very important!
+    if not isinstance(code, list):
+        code = [code]
+    code = _dcopy(code)
+    for _ in range(depth):
+        shrink_element = {}
+        for k, v in seq.items():
+            j = list(_KnuthMorrisPratt(code, v))
+            for i in j:
+                shrink_element[i] = [k, len(v)]
+        if len(shrink_element) == 0:
+            break
+        elements = [n for k, v in shrink_element.items()
+                    for n in list(range(k + 1, k + v[1]))]
+        for k, v in shrink_element.items():
+            code[k] = v[0]
+        shrinked = []
+        for l, val in enumerate(code):
+            if l not in elements:
+                shrinked.append(val)
+        code = shrinked
+    return(code)
+
+
+def expand_descriptors(code, depth=99, masterTableVersionNumber='latest'):
+    seq = get_sequence_def(masterTableVersionNumber)
+    if not isinstance(code, list):
+        code = [code]
+    expanded = []
+    for c in code:
+        for i in range(depth):
+            if c in seq.keys():
+                c = expand_descriptors(seq[c], depth - 1,
+                                       masterTableVersionNumber)
+            else:
+                break
+        if not isinstance(c, list):
+            c = [c]
+        expanded.extend(c)
+    return(expanded)
 
 
 def get_value_from_code_table(value, code, masterTableVersionNumber='latest'):
