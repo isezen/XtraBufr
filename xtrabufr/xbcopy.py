@@ -2,11 +2,11 @@
 # -*- coding: utf-8 -*-
 #
 
-""" bcopy_msg.py : Copy a message from a BUFR file
+""" xbcopy.py : Copy a message from a BUFR file
 
 Also you can copy/extract a subset.
 
-       USAGE: ./bcopy_msg.py --help
+       USAGE: ./xbcopy.py --help
       AUTHOR: Ismail SEZEN (isezen)
        EMAIL: isezen@mgm.gov.tr, sezenismail@gmail.com
 ORGANIZATION: Turkish State Meteorological Service
@@ -28,8 +28,8 @@ You should have received a copy of the GNU Affero General Public License
 along with this program.  If not, see <http://www.gnu.org/licenses/>."""
 
 # =============================================================================
-#         FILE: bcopy_msg.py
-#        USAGE: ./bcopy_msg.py [msg_id] [bufr_in] [bufr_out]
+#         FILE: xbcopy.py
+#        USAGE: ./xbcopy.py [msg_id] [bufr_in] [bufr_out]
 #  DESCRIPTION: Copy a single message from a bufr file
 #       AUTHOR: Ismail SEZEN (isezen)
 #        EMAIL: isezen@mgm.gov.tr, sezenismail@gmail.com
@@ -137,7 +137,6 @@ def main():
     epilog = 'Example of use:\n' + \
              ' {0} 5 input.bufr out.bufr\n' + \
              ' {0} -s 10 5 input.bufr out.bufr\n'
-    # args = [['-s', '--subset_id', int, 'N', 'Subset Id']]
 
     args = [['-s', '--subset_id', int, 'N', 'Subset Id'],
             ['-m', '--msg_id', int, 'N', 'Message Id (Mandatory)']]
@@ -149,9 +148,6 @@ def main():
     for a in args:
         p.add_argument(a[0], a[1], type=a[2], nargs='?', metavar=a[3],
                        default=None, help=a[4])
-        # p.add_argument(a[0], a[1], type=a[2], nargs='?', metavar=a[3],
-        #                default=None, help=a[4])
-    # p.add_argument('msg_id', type=int, help='Message Id')
     p.add_argument('bufr_in', type=str, help='BUFR file to process')
     p.add_argument('bufr_out', type=str, help='Output BUFR file')
     args = p.parse_args()
