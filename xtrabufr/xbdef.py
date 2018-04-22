@@ -2,9 +2,9 @@
 # -*- coding: utf-8 -*-
 #
 
-""" bufr_definitions.py : BUFR definition operations
+""" xbdef.py : BUFR definition operations
 
-       USAGE: ./bufr_definitions.py --help
+       USAGE: ./xbdef.py --help
       AUTHOR: Ismail SEZEN (isezen)
        EMAIL: isezen@mgm.gov.tr, sezenismail@gmail.com
 ORGANIZATION: Turkish State Meteorological Service
