@@ -89,12 +89,7 @@ def _xbdef_():
         print(__name__, __version__)
 
     try:
-        t = _time.clock()
-        d = Descriptors(args.lookup)
-        elapsed_time = _time.clock() - t
-        print(d.__str__(show_desc=args.description))
-        print('Elapsed: {:0.2f} sec.'.format(elapsed_time))
-        return(0)
+        print(Descriptors(args.lookup).__str__(show_desc=args.description))
     except Exception as e:
         eprint(e)
         return(1)

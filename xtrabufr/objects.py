@@ -89,7 +89,9 @@ class Descriptors(_MS):
         i = 0
         while i < len(self._list):
             sc2 = '{:06d}'.format(self._list[i].code)
-            s += '\n' + self._list[i].__str__(show_desc, tab + 4)
+            if s != '':
+                s += '\n'
+            s += self._list[i].__str__(show_desc, tab + 4)
             if sc2[0] == '1':
                 sc3 = '{:06d}'.format(self._list[i + 1].code)
                 if sc3[0:3] == '031':
