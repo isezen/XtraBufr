@@ -11,7 +11,7 @@ This package contains extra functions and tools to work with
 :author: Ismail SEZEN (sezenismail@gmail.com)
 """
 from __future__ import absolute_import
-from .__extra__ import *
+from ._extra_ import *
 from . import definitions
 from . import objects
 
