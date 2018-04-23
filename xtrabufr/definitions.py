@@ -30,8 +30,7 @@ class _entry_(_ct.Structure):
 
 
 def _get_lib_path_(lib_name='libeccodes'):
-    """Return libeccodes_memfs lib file
-    """
+    """Return path to ecCodes library"""
     system_name = _system()
     codes_info_path = _chekout(['which', 'codes_info']).strip()
     if system_name == 'Linux':
@@ -40,13 +39,16 @@ def _get_lib_path_(lib_name='libeccodes'):
     elif system_name == 'Darwin':
         q = ['otool', '-L']  # this reqires xcode to be installed
         ext = 'dylib'
-        q.append(codes_info_path)
+    q.append(codes_info_path)
     lib_path = None
     lib_name_ext = lib_name + '.' + ext
     for i in _chekout(q).strip().split('\n'):
         i = i.strip()
         if lib_name_ext in i:
-            lib_path = i.split(' ')[0]
+            if system_name == 'Linux':
+                lib_path = i.split(' ')[2]
+            elif system_name == 'Darwin':
+                lib_path = i.split(' ')[0]
             break
 
     if not _os.path.exists(lib_path):
