@@ -4,12 +4,13 @@ xtrabufr.extra
 Additional functions to ecCodes python package
 """
 
-# from __future__ import print_function
+from __future__ import print_function
 # from __future__ import absolute_import
 
 import os as _os
 import eccodes as _ec
 from numpy import ndarray as _nd
+from sys import stderr as _stderr
 from collections import OrderedDict as _od
 from subprocess import check_output as _chekout
 
@@ -17,6 +18,10 @@ __all__ = ['codes_info', 'codes_get_definitions_path', 'msg_count',
            'extract_subset', 'get_msg', 'copy_msg_from_file']
 
 _codes_definition_path_ = None
+
+
+def _eprint_(*args, **kwargs):
+    print('ERROR: ', *args, file=_stderr, **kwargs)
 
 
 def codes_info(args):
@@ -43,7 +48,7 @@ def codes_get_definitions_path():
     return(_codes_definition_path_)
 
 
-# _codes_definition_path_ = codes_get_definitions_path()
+_codes_definition_path_ = codes_get_definitions_path()
 
 
 def get_keys(bufr_handle):
@@ -171,3 +176,125 @@ def copy_msg_from_file(bufr_in, bufr_out, msg=1, subset=None):
                 _ec.codes_write(bufr, fout)
             _ec.codes_release(bufr)
 
+
+def get_header_and_unpack(bufr_handle, msg=None):
+    """Get header from BUFR handle and unpack
+
+    :param bufr_handle: Handle to BUFR file
+    :param msg: Id if message (Required only for Error handling)
+    :returns: (OrderedDict) Header key and values
+    """
+    header_keys = get_keys(bufr_handle)
+    h = _od([(k, get_val(bufr_handle, k)) for k in header_keys])
+
+    try:
+        _ec.codes_set(bufr_handle, 'unpack', 1)
+    except _ec.DecodingError as e:
+        _eprint_('MSG #{} {}'.format(msg, e.msg))
+        return(None)
+
+    return(h)
+
+
+def read_compressed_msg(bufr_handle, msg=None, subset=None):
+    """Read compressed message from BUFR file
+
+    :param bufr_handle: Handle to BUFR file
+    :param msg: Number of message to read
+    :param subset: Number of subset in message to read
+                   If None, all subsets are return
+    :returns: (OrderedDict) Read message
+    """
+    h = get_header_and_unpack(bufr_handle, msg)
+    if h is None:
+        return(None)
+
+    keys = [k for k in get_keys(bufr_handle) if k not in h.keys()]
+    s = _od([(k, get_val(bufr_handle, k)) for k in keys])
+
+    if subset is not None:
+        if isinstance(subset, list):
+            for k, v in s.items():
+                if isinstance(v, list):
+                    s[k] = [s[k][i - 1] for i in s]
+
+    return({'header': h, 'subset': {'compressed': s}})
+
+
+def read_uncompressed_msg(bufr_handle, msg=None, subset=None):
+    """Read uncompressed message from BUFR file
+
+    :param bufr_handle: Handle to BUFR file
+    :param msg: Id of message to read
+    :param subset: Id of subset in message to read
+                      If None, all subsets are read
+    :returns: (OrderedDict) Read message
+    """
+    h = get_header_and_unpack(bufr_handle, msg)
+    if h is None:
+        return(None)
+
+    if subset is None:
+        nos = get_val(bufr_handle, 'numberOfSubsets')
+        subset = list(range(1, nos + 1))
+
+    s = {}
+    for i in subset:
+
+        try:
+            bufr2_handle = extract_subset(bufr_handle, i)
+        except _ec.CodesInternalError as e:
+            _eprint_('MSG #{} - Subset #{} "{}"'.format(msg, i, e.msg))
+            break
+
+        keys = [k for k in get_keys(bufr2_handle) if k not in h.keys()]
+        s[i] = _od([(k, get_val(bufr2_handle, k)) for k in keys])
+        _ec.codes_release(bufr2_handle)
+    return({'header': h, 'subset': s})
+
+
+def read_msg(bufr_file, msg=None, subset=None):
+    """ Read a message at a time from BUFR file
+
+    This is a generator function. Returns Number of message and
+    message content each time. If you want result as a dictionary,
+
+    {i: m for i, m in read_msg(bufr_file)}
+
+    :param bufr_file: BUFR file name
+    :param msg: Id of message to read
+    :param subset: Id of subset in message to read
+                   If None, all subsets are read
+    :return: (OrderedDict) Read message
+    """
+
+    if isinstance(msg, int):
+        msg = set([msg])
+
+    if msg is None:
+        msg = set(range(1, msg_count(bufr_file) + 1))
+
+    if isinstance(subset, int):
+        subset = set([subset])
+
+    i = 0
+    with open(bufr_file, 'rb') as f:
+        while True:
+            i += 1
+            bufr_handle = _ec.codes_bufr_new_from_file(f)
+
+            if bufr_handle is None:
+                break
+
+            if i in msg:
+                msg.remove(i)
+                #
+                compressed = get_val(bufr_handle, 'compressedData') == 1
+                fun = read_compressed_msg if compressed \
+                    else read_uncompressed_msg
+                yield(i, fun(bufr_handle, i, subset))
+
+            _ec.codes_release(bufr_handle)
+            if len(msg) == 0:
+                break
+    # return(message)
