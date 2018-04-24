@@ -34,7 +34,8 @@ setup(
     scripts=['bin/xbsort', 'bin/xbsplit', 'bin/xbcp2bin'],
     entry_points={
         'console_scripts': ['xbdef = xtrabufr._scripts_:_xbdef_',
-                            'xbcopy = xtrabufr._scripts_:_xbcopy_'],
+                            'xbcopy = xtrabufr._scripts_:_xbcopy_',
+                            'xbprint = xtrabufr._scripts_:_xbprint_'],
     },
     author=get('author'),
     author_email=get('email'),
