@@ -12,15 +12,15 @@ from copy import deepcopy as _dcopy
 from platform import system as _system
 from collections import OrderedDict as _od
 from subprocess import check_output as _chekout
-from ._extra_ import codes_get_definitions_path as _codes_def_path
-
+# from ._extra_ import codes_get_definitions_path as _codes_def_path
+from ._eccodes_tools_ import _codes_definition_path_
 
 __all__ = ['get_element_table', 'get_bufr_template_def', 'get_sequence_def',
            'get_code_table', 'get_value_from_code_table',
            'shrink_descriptors', 'expand_descriptors']
 
 _def_catch_ = {}
-_codes_definition_path_ = _codes_def_path()
+# _codes_definition_path_ = _codes_def_path()
 
 
 class _entry_(_ct.Structure):
@@ -233,7 +233,7 @@ def get_value_from_code_table(value, code, masterTableVersionNumber='latest'):
     return(ct[value])
 
 
-def shrink_descriptors(code, depth=99, masterTableVersionNumber='latest'):
+def shrink_descriptors(code, masterTableVersionNumber='latest', depth=99):
     """Shrink descriptor(s)
 
     :code: A single integer or list of integers
@@ -266,7 +266,7 @@ def shrink_descriptors(code, depth=99, masterTableVersionNumber='latest'):
     return(code)
 
 
-def expand_descriptors(code, depth=99, masterTableVersionNumber='latest'):
+def expand_descriptors(code, masterTableVersionNumber='latest', depth=99):
     """Expand descriptor(s)
 
     :code: A single integer or list of integers
@@ -281,8 +281,8 @@ def expand_descriptors(code, depth=99, masterTableVersionNumber='latest'):
     for c in code:
         for i in range(depth):
             if c in seq.keys():
-                c = expand_descriptors(seq[c], depth - 1,
-                                       masterTableVersionNumber)
+                c = expand_descriptors(seq[c], masterTableVersionNumber,
+                                       depth - 1)
             else:
                 break
         if not isinstance(c, list):
@@ -317,7 +317,7 @@ def desc_is_in(code, search_in, masterTableVersionNumber='latest'):
                                               code[i], j):
                             ret[i] = True
                             break
-        if len(ret) == 1:
-            ret = ret[0]
+        # if len(ret) == 1:
+        #     ret = ret[0]
         return(ret)
     return(def_is_in_internal(masterTableVersionNumber, code, search_in))
