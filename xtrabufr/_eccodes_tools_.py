@@ -14,6 +14,14 @@ __all__ = ['codes_info', 'codes_get_definitions_path']
 _codes_definition_path_ = None
 
 
+def bufr_dump(bufr_files, options=''):
+    try:
+        ret = _chekout(['bufr_dump', options, bufr_files])
+    except OSError as e:
+        raise OSError('bufr_dump tool was not found')
+    return(ret)
+
+
 def codes_info(args):
     if not isinstance(args, list):
         args = [args]
