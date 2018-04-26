@@ -12,43 +12,12 @@ import eccodes as _ec
 from numpy import ndarray as _nd
 from sys import stderr as _stderr
 from collections import OrderedDict as _od
-from subprocess import check_output as _chekout
 
-__all__ = ['codes_info', 'codes_get_definitions_path', 'msg_count',
-           'extract_subset', 'get_msg', 'copy_msg_from_file']
-
-_codes_definition_path_ = None
+__all__ = ['msg_count', 'extract_subset', 'get_msg', 'copy_msg_from_file']
 
 
 def _eprint_(*args, **kwargs):
     print('ERROR: ', *args, file=_stderr, **kwargs)
-
-
-def codes_info(args):
-    if not isinstance(args, list):
-        args = [args]
-    try:
-        ret = _od([(p, _chekout(['codes_info', '-' + p]).strip())
-                   for p in args])
-    except OSError as e:
-        raise OSError('codes_info tool was not found')
-    if len(ret) == 1:
-        return(ret.values()[0])
-    return(ret)
-
-
-def codes_get_definitions_path():
-    global _codes_definition_path_
-    if _codes_definition_path_ is not None:
-        return(_codes_definition_path_)
-    try:
-        _codes_definition_path_ = _os.environ['ECCODES_DEFINITION_PATH']
-    except KeyError as e:
-        _codes_definition_path_ = codes_info('d')
-    return(_codes_definition_path_)
-
-
-_codes_definition_path_ = codes_get_definitions_path()
 
 
 def get_keys(bufr_handle):
@@ -297,4 +266,93 @@ def read_msg(bufr_file, msg=None, subset=None):
             _ec.codes_release(bufr_handle)
             if len(msg) == 0:
                 break
-    # return(message)
+
+
+def bufr_filter(bufr_files, **kwargs):
+    """ Filter BUFR files(s) by condition
+
+    This function works only for header keys.
+
+    :param bufr_files: Path to bufr file(s)
+    :param **kwargs: A valid key to filter
+        edition
+        masterTableNumber
+        bufrHeaderCentre
+        bufrHeaderSubCentre
+        updateSequenceNumber
+        dataCategory
+        internationalDataSubCategory
+        dataSubCategory
+        masterTablesVersionNumber
+        localTablesVersionNumber
+        typicalYear
+        typicalMonth
+        typicalDay
+        typicalHour
+        typicalMinute
+        typicalSecond
+        observedData
+        compressedData
+        unexpandedDescriptor
+        typicalTime
+        typicalDate
+    :return: Yields bufr_handle
+    """
+
+    def bufr_filter_file(bufr_file, filters):
+        bufr_handles = []
+        fltr = filters[:]
+        fl = fltr[0]
+        del fltr[0]
+        with open(bufr_file, 'rb') as f:
+            while True:
+                bufr_handle = _ec.codes_bufr_new_from_file(f)
+                if bufr_handle is None:
+                    break
+                val = get_val(bufr_handle, fl[0])
+                if not isinstance(val, list):
+                    val = [val]
+                if any([v in val for v in fl[1]]):
+                    bufr_handles.append(bufr_handle)
+                    continue
+                _ec.codes_release(bufr_handle)
+
+        for fl in fltr:
+            for i in range(len(bufr_handles) - 1, -1, -1):
+                val = get_val(bufr_handles[i], fl[0])
+                if not isinstance(val, list):
+                    val = [val]
+                if not any([v in val for v in fl[1]]):
+                    _ec.codes_release(bufr_handles[i])
+                    del bufr_handles[i]
+        bufr_handles = [i for i in bufr_handles if i > -1]
+        return(bufr_handles)
+
+    if not isinstance(bufr_files, list):
+        bufr_files = [bufr_files]
+
+    kw = {k: v for k, v in kwargs.items() if v is not None}
+    for k in kw.keys():
+        if not isinstance(kw[k], list):
+            kw[k] = [kw[k]]
+
+    filters = [[k, v] for k, v in kw.items()]
+
+    for f in bufr_files:
+        handles = bufr_filter_file(f, filters)
+        for h in handles:
+            yield h
+            _ec.codes_release(h)
+
+
+def bufr_filter_dump(bufr_files, bufr_out, plain=False, **kwargs):
+    n = 0
+    with open(bufr_out, 'wb') as fout:
+        for bufr_handle in bufr_filter(bufr_files, **kwargs):
+            if bufr_handle is not None:
+                n += 1
+                _ec.codes_write(bufr_handle, fout)
+    if n == 0:
+        _os.remove(bufr_out)
+    return(n)
+

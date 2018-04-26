@@ -35,7 +35,8 @@ setup(
     entry_points={
         'console_scripts': ['xbdef = xtrabufr._scripts_:_xbdef_',
                             'xbcopy = xtrabufr._scripts_:_xbcopy_',
-                            'xbprint = xtrabufr._scripts_:_xbprint_'],
+                            'xbprint = xtrabufr._scripts_:_xbprint_',
+                            'xbfilter = xtrabufr._scripts_:_xbfilter_'],
     },
     author=get('author'),
     author_email=get('email'),
