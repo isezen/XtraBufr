@@ -14,7 +14,7 @@ from argparse import RawTextHelpFormatter as _rtformatter
 
 from . import (__version__, __name__, __author__, __license__, __year__)
 from .objects import Descriptors
-from ._extra_ import copy_msg_from_file
+from ._extra_ import copy_msg
 from ._extra_ import read_msg
 from ._extra_ import iter_messages
 from ._extra_ import iter_synop
@@ -95,7 +95,6 @@ def _xbsynop_():
                     if n == 0:
                         writer.writerow(s.keys())
                     n += 1
-                    # li = [[v[0] for _, v in s.items()]]
                     li = [v for _, v in s.items()]
                     li = map(list, zip(*li))
                     writer.writerows(li)
@@ -209,7 +208,7 @@ def _xbcopy_():
 
     for a in [['-m', '--msg', int, 'N', 'Message Id (Mandatory)'],
               ['-s', '--subset', int, 'N', 'Subset Id']]:
-        p.add_argument(a[0], a[1], type=a[2], nargs='?', metavar=a[3],
+        p.add_argument(a[0], a[1], type=a[2], nargs='+', metavar=a[3],
                        default=None, help=a[4])
     p.add_argument('bufr_in', type=str, help='BUFR file to process')
     p.add_argument('bufr_out', type=str, help='Output BUFR file')
@@ -220,8 +219,8 @@ def _xbcopy_():
         return(1)
 
     try:
-        copy_msg_from_file(args.bufr_in, args.bufr_out,
-                           args.msg, args.subset)
+        copy_msg(args.bufr_in, args.bufr_out,
+                 args.msg, args.subset)
         return(0)
     except KeyboardInterrupt:
         print("Process stopped")

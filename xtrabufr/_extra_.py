@@ -14,8 +14,17 @@ from sys import stderr as _stderr
 from collections import OrderedDict as _od
 from definitions import get_value_from_code_table as _get_value_from_code_table
 
-__all__ = ['msg_count', 'extract_subset', 'get_msg', 'copy_msg_from_file',
-           'iter_messages', 'iter_synop', 'dump', 'synop']
+__all__ = ['msg_count', 'extract_subset', 'get_msg', 'copy_msg',
+           'header', 'iter_messages', 'iter_synop', 'dump', 'synop']
+
+
+_header_keys_ = ['edition', 'masterTableNumber', 'bufrHeaderCentre',
+                 'bufrHeaderSubCentre', 'updateSequenceNumber', 'dataCategory',
+                 'internationalDataSubCategory', 'dataSubCategory',
+                 'masterTablesVersionNumber', 'localTablesVersionNumber',
+                 'typicalYear', 'typicalMonth', 'typicalDay', 'typicalHour',
+                 'typicalMinute', 'typicalSecond', 'numberOfSubsets',
+                 'observedData', 'compressedData', 'unexpandedDescriptors']
 
 
 def _eprint_(*args, **kwargs):
@@ -23,9 +32,9 @@ def _eprint_(*args, **kwargs):
 
 
 def get_attr(bufr_handle, key):
-    """Get attributes of a key
+    """Get attributes of a key from BUFR message
 
-    :param bufr: Handle to BUFR file
+    :param bufr: Handle to BUFR message
     :returns: List of keys
     """
     attrs = ['code', 'units', 'scale', 'reference', 'width']
@@ -43,7 +52,7 @@ def get_attr(bufr_handle, key):
 def get_keys(bufr_handle):
     """Get keys from a BUFR handle
 
-    :param bufr: Handle to BUFR file
+    :param bufr: Handle to BUFR message
     :returns: List of keys
     """
     keys = []
@@ -55,13 +64,13 @@ def get_keys(bufr_handle):
 
 
 def get_val(bufr_handle, key):
-    """Read value of a key in from a BUFR message
+    """Read value of a key from BUFR message
 
     If value is missing returns None
 
-    :param bufr_handle: Handle to BUFR file
+    :param bufr_handle: Handle to BUFR message
     :param key: Key value
-    :returns: Read value
+    :returns: Value of the key
     """
     size = _ec.codes_get_size(bufr_handle, key)
     v = None
@@ -95,49 +104,39 @@ def get_val(bufr_handle, key):
 
 
 def extract_subset(bufr_handle, subset):
-    """Extract a subset from a BUFR handle
+    """Extract subset(s) from a BUFR message
+
+    subset can be a single integer or a list yields start
+    and end of subsets.
 
     :param bufr_handle: Handle to BUFR message
     :param subset: Number of subset
     :returns: Handle to BUFR message contains subset
     """
-    _ec.codes_set(bufr_handle, 'extractSubset', subset)
+    if isinstance(subset, list):
+        if len(subset) == 1:
+            subset = subset[0]
+
+    _ec.codes_set(bufr_handle, 'unpack', 1)
+    if isinstance(subset, list):
+        if min(subset) == max(subset):
+            raise ValueError('min and max value of subset cannot be equal')
+        _ec.codes_set(bufr_handle, 'extractSubsetIntervalStart', min(subset))
+        _ec.codes_set(bufr_handle, 'extractSubsetIntervalEnd', max(subset))
+    else:
+        _ec.codes_set(bufr_handle, 'extractSubset', subset)
     _ec.codes_set(bufr_handle, 'doExtractSubsets', 1)
     bufr_handle2 = _ec.codes_clone(bufr_handle)
-    _ec.codes_set(bufr_handle2, 'unpack', 1)
     return(bufr_handle2)
 
 
-def get_msg(file_handle, msg=1, subset=None):
-    """Get message by id and/or subset from a BUFR file
+def header(bufr_handle):
+    """Get header values from BUFR handle
 
-    You have to open file first and send the file handle to this function
-
-    :param file_handle: File handle to BUFR file
-    :param msg: Number of message
-    :param subset: Number of subset
-    :returns: Handle to BUFR message or None
+    :param bufr_handle: Handle to BUFR file
+    :returns: (OrderedDict) Header key and values
     """
-    i = 0
-    ret = None
-    while True:
-        i += 1
-        bufr = _ec.codes_bufr_new_from_file(file_handle)
-        if i == msg:
-            if subset is None:
-                ret = bufr
-            else:
-                nos = _ec.codes_get(bufr, 'numberOfSubsets')
-                if subset < 1 and subset > nos:
-                    raise ValueError('subset must between 1-{}'.format(nos))
-                _ec.codes_set(bufr, 'unpack', 1)
-                ret = extract_subset(bufr, subset)
-            break
-        _ec.codes_release(bufr)
-    if ret is None:
-        n = _ec.codes_count_in_file(file_handle)
-        raise ValueError('msg must be between 1-{}'.format(n))
-    return(ret)
+    return(_od([(k, get_val(bufr_handle, k)) for k in _header_keys_]))
 
 
 def msg_count(bufr_file):
@@ -152,42 +151,45 @@ def msg_count(bufr_file):
     return(ret)
 
 
-def copy_msg_from_file(bufr_in, bufr_out, msg=1, subset=None):
-    """Copy message and subset from a BUFR file into a new BUFR file
+def get_msg(bufr_files, msg=1, subset=None):
+    """Get handle to the message
+
+    You have to release bufr_handle(s) after use
+
+    :param bufr_files: BUFR files to read
+    :param msg: Id of message or a list contains Ids
+    :param subset: Subset Number or interval to extract subsets
+    :returns: bufr_handle or list of bufr_handles
+    """
+    handles = []
+    for i in iter_messages(bufr_files, release_resources=False, msg_id=msg):
+        if subset is None:
+            handles.append(i)
+        else:
+            handles.append(extract_subset(i, subset))
+            _ec.codes_release(i)
+    if len(handles) == 1:
+        return(handles[0])
+    return(handles)
+
+
+def copy_msg(bufr_files, bufr_out, msg=1, subset=None):
+    """Copy message and subset from BUFR file(s) into a new file
 
     Whole message is copied if subset was not defined.
 
     :param bufr_in: Path to BUFR file to read
     :param bufr_out: Path to BUFR file to save
-    :param msg: Number of message
-    :param subset: Number of subset
-    :returns: None
+    :param msg: Number of message(s)
+    :param subset: Number of subset(s)
+    :returns: Number of copied messages
     """
-    with open(bufr_in, 'rb') as fin:
-        bufr = get_msg(fin, msg, subset)
-        if bufr is not None:
-            with open(bufr_out, 'wb') as fout:
-                _ec.codes_write(bufr, fout)
-            _ec.codes_release(bufr)
+    def iter_msg(bufr_files, **f):
+        for i in iter_messages(bufr_files, msg_id=f['msg_id']):
+            yield(i if subset is None else extract_subset(i, f['subset']))
 
-
-def get_header_and_unpack(bufr_handle, msg=None):
-    """Get header from BUFR handle and unpack
-
-    :param bufr_handle: Handle to BUFR file
-    :param msg: Id if message (Required only for Error handling)
-    :returns: (OrderedDict) Header key and values
-    """
-    header_keys = get_keys(bufr_handle)
-    h = _od([(k, get_val(bufr_handle, k)) for k in header_keys])
-
-    try:
-        _ec.codes_set(bufr_handle, 'unpack', 1)
-    except _ec.DecodingError as e:
-        _eprint_('MSG #{} {}'.format(msg, e.msg))
-        return(None)
-
-    return(h)
+    return(dump(bufr_files, bufr_out, iter_msg,
+                **{'msg_id': msg, 'subset': subset}))
 
 
 def read_compressed_msg(bufr_handle, msg=None, subset=None):
@@ -199,10 +201,11 @@ def read_compressed_msg(bufr_handle, msg=None, subset=None):
                    If None, all subsets are return
     :returns: (OrderedDict) Read message
     """
-    h = get_header_and_unpack(bufr_handle, msg)
-    if h is None:
-        return(None)
-
+    # h = get_header_and_unpack(bufr_handle, msg)
+    # if h is None:
+    #     return(None)
+    h = header(bufr_handle)
+    _ec.codes_set(bufr_handle, 'unpack', 1)
     keys = [k for k in get_keys(bufr_handle) if k not in h.keys()]
     s = _od([(k, get_val(bufr_handle, k)) for k in keys])
 
@@ -224,10 +227,10 @@ def read_uncompressed_msg(bufr_handle, msg=None, subset=None):
                       If None, all subsets are read
     :returns: (OrderedDict) Read message
     """
-    h = get_header_and_unpack(bufr_handle, msg)
-    if h is None:
-        return(None)
-
+    # h = get_header_and_unpack(bufr_handle, msg)
+    # if h is None:
+    #     return(None)
+    h = header(bufr_handle)
     if subset is None:
         nos = get_val(bufr_handle, 'numberOfSubsets')
         subset = list(range(1, nos + 1))
@@ -237,6 +240,7 @@ def read_uncompressed_msg(bufr_handle, msg=None, subset=None):
 
         try:
             bufr2_handle = extract_subset(bufr_handle, i)
+            _ec.codes_set(bufr2_handle, 'unpack', 1)
         except _ec.CodesInternalError as e:
             _eprint_('MSG #{} - Subset #{} "{}"'.format(msg, i, e.msg))
             break
@@ -286,6 +290,11 @@ def read_msg(bufr_file, msg=None, subset=None):
                 compressed = get_val(bufr_handle, 'compressedData') == 1
                 fun = read_compressed_msg if compressed \
                     else read_uncompressed_msg
+                try:
+                    _ec.codes_set(bufr_handle, 'unpack', 1)
+                except _ec.DecodingError as e:
+                    _eprint_('MSG #{} {}'.format(msg, e.msg))
+                    continue
                 yield(i, fun(bufr_handle, i, subset))
 
             _ec.codes_release(bufr_handle)
@@ -293,15 +302,17 @@ def read_msg(bufr_file, msg=None, subset=None):
                 break
 
 
-def iter_messages(bufr_files, **filters):
+def iter_messages(bufr_files, release_resources=True, **filters):
     """Iterate over messages in BUFR files(s)
 
-    Also messages can be filtered by header keys.
+    Also messages can be filtered by message id and header keys.
+    if msg_id is defined other rules are ignored.
 
-    This is a generator
+    This is a generator function
 
     :param bufr_files: Path to bufr file(s)
     :param **filters: Dictionary of keys to filter
+        msg_id (Message id)
         edition
         masterTableNumber
         bufrHeaderCentre
@@ -326,43 +337,41 @@ def iter_messages(bufr_files, **filters):
     :return: Yields bufr_handle
     """
 
-    def is_equal(x, y):
-        ret = []
-        for v in x:
-            if isinstance(v, list):
-                ret.append(v == y)
-            else:
-                ret.append(v in y)
-        return(any(ret))
+    def key_value_found(fl, i, bufr_handle):
+        if fl[0] is None:
+            return(True)
+        if fl[0] == 'msg_id':
+            return(i in fl[1])
+        else:
+            val = get_val(bufr_handle, fl[0])
+            if not isinstance(val, list):
+                val = [val]
+            ret = [v == val if isinstance(v, list) else v in val
+                   for v in fl[1]]
+            return(any(ret))
 
     def iter_file(bufr_file, filters):
-        print(bufr_file)
+        if len(filters) == 0:
+            filters = [[None, None]]
         bufr_handles = []
-        fltr = filters[:]
-        fl = fltr[0]
-        del fltr[0]
         with open(bufr_file, 'rb') as f:
+            msg_id = 0
             while True:
                 bufr_handle = _ec.codes_bufr_new_from_file(f)
+                msg_id += 1
                 if bufr_handle is None:
                     break
-                val = get_val(bufr_handle, fl[0])
-                if not isinstance(val, list):
-                    val = [val]
-                if is_equal(fl[1], val):
+                if key_value_found(filters[0], msg_id, bufr_handle):
                     bufr_handles.append(bufr_handle)
                     continue
                 _ec.codes_release(bufr_handle)
 
-        for fl in fltr:
+        for j in range(1, len(filters)):
             for i in range(len(bufr_handles) - 1, -1, -1):
-                val = get_val(bufr_handles[i], fl[0])
-                if not isinstance(val, list):
-                    val = [val]
-                if not is_equal(fl[1], val):
+                if not key_value_found(filters[j], 0, bufr_handles[i]):
                     _ec.codes_release(bufr_handles[i])
                     del bufr_handles[i]
-        bufr_handles = [i for i in bufr_handles if i > -1]
+
         return(bufr_handles)
 
     if not isinstance(bufr_files, list):
@@ -373,22 +382,23 @@ def iter_messages(bufr_files, **filters):
         if not isinstance(filters[k], list):
             filters[k] = [filters[k]]
 
-    filters = [[k, v] for k, v in filters.items()]
+    if 'msg_id' in filters.keys():
+        filters = {'msg_id': filters['msg_id']}
 
     n = 0
     for f in bufr_files:
-        handles = iter_file(f, filters)
+        handles = iter_file(f, [[k, v] for k, v in filters.items()])
         for h in handles:
             yield h
-            _ec.codes_release(h)
-            n += 1
-    print(n, 'released')
+            if release_resources:
+                _ec.codes_release(h)
+                n += 1
 
 
 def iter_synop(bufr_files, **filters):
-    """Filter synop messages from BUFR file
+    """Iterates synop messages in BUFR file(s)
 
-    This is a generator
+    This is a generator function
 
     :param bufr_files: BUFR file(s)
     :return: yields handle to synop BUFR message
