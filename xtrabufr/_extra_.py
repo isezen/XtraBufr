@@ -151,8 +151,150 @@ def msg_count(bufr_file):
     return(ret)
 
 
+def dump(bufr_files, bufr_out, generator_fun, **kwargs):
+    """dump result of generator function to a file
+
+    :param bufr_files: List of BUFR files
+    :param bufr_out: Path to output file
+    :param generator_fun: A function generates BUFR handles
+    :param kwargs: Arguments to be passed to generator_fun
+    :returns: Number of dumped messages
+    """
+    n = 0
+    with open(bufr_out, 'wb') as fout:
+        for bufr_handle in generator_fun(bufr_files, **kwargs):
+            n += 1
+            _ec.codes_write(bufr_handle, fout)
+    if n == 0:
+        _os.remove(bufr_out)
+    return(n)
+
+
+def iter_messages(bufr_files, release_resources=True, **filters):
+    """Iterate over messages in BUFR files(s)
+
+    Also messages can be filtered by message id and header keys.
+    if msg_id is defined other rules are ignored.
+
+    This is a generator function
+
+    :param bufr_files: Path to bufr file(s)
+    :param **filters: Dictionary of keys to filter
+        msg_id (Message id)
+        edition
+        masterTableNumber
+        bufrHeaderCentre
+        bufrHeaderSubCentre
+        updateSequenceNumber
+        dataCategory
+        internationalDataSubCategory
+        dataSubCategory
+        masterTablesVersionNumber
+        localTablesVersionNumber
+        typicalYear
+        typicalMonth
+        typicalDay
+        typicalHour
+        typicalMinute
+        typicalSecond
+        observedData
+        compressedData
+        unexpandedDescriptor
+        typicalTime
+        typicalDate
+    :return: Yields bufr_handle
+    """
+
+    def key_value_found(fl, i, bufr_handle):
+        if fl[0] is None:
+            return(True)
+        if fl[0] == 'msg_id':
+            return(i in fl[1])
+        else:
+            val = get_val(bufr_handle, fl[0])
+            if not isinstance(val, list):
+                val = [val]
+            ret = [v == val if isinstance(v, list) else v in val
+                   for v in fl[1]]
+            return(any(ret))
+
+    def iter_file(bufr_file, filters):
+        if len(filters) == 0:
+            filters = [[None, None]]
+        bufr_handles = []
+        with open(bufr_file, 'rb') as f:
+            msg_id = 0
+            while True:
+                bufr_handle = _ec.codes_bufr_new_from_file(f)
+                msg_id += 1
+                if bufr_handle is None:
+                    break
+                if key_value_found(filters[0], msg_id, bufr_handle):
+                    bufr_handles.append(bufr_handle)
+                    continue
+                _ec.codes_release(bufr_handle)
+
+        for j in range(1, len(filters)):
+            for i in range(len(bufr_handles) - 1, -1, -1):
+                if not key_value_found(filters[j], 0, bufr_handles[i]):
+                    _ec.codes_release(bufr_handles[i])
+                    del bufr_handles[i]
+
+        return(bufr_handles)
+
+    if not isinstance(bufr_files, list):
+        bufr_files = [bufr_files]
+
+    filters = {k: v for k, v in filters.items() if v is not None}
+    for k in filters.keys():
+        if not isinstance(filters[k], list):
+            filters[k] = [filters[k]]
+
+    if 'msg_id' in filters.keys():
+        filters = {'msg_id': filters['msg_id']}
+
+    n = 0
+    for f in bufr_files:
+        handles = iter_file(f, [[k, v] for k, v in filters.items()])
+        for h in handles:
+            yield h
+            if release_resources:
+                _ec.codes_release(h)
+                n += 1
+
+
+def iter_synop(bufr_files, **filters):
+    """Iterates synop messages in BUFR file(s)
+
+    This is a generator function
+
+    :param bufr_files: BUFR file(s)
+    :return: yields handle to synop BUFR message
+    """
+
+    filters['dataCategory'] = 0
+    filters['unexpandedDescriptors'] = [
+        307080, 307086, 307096,
+        [307086, 1023, 4025, 2177, 101000, 31001, 20003,
+         103000, 31001, 5021, 20001, 5021, 101000, 31000,
+         302056, 103000, 31000, 33041, 20058, 22061, 101000,
+         31000, 302022, 101000, 31001, 302023, 103000, 31001,
+         20054, 20012, 20090, 4025, 13012, 4025, 11042,
+         104000, 31001, 8021, 4025, 11042, 8021, 115000,
+         31001, 8021, 4015, 8021, 4025, 11001, 11002, 8021,
+         4015, 8021, 4025, 11001, 11002, 8021, 4025, 4015,
+         103000, 31001, 4025, 4025, 20003, 111000, 31001,
+         4025, 4025, 5021, 5021, 20054, 20024, 20025, 20026,
+         20027, 20063, 8021],
+        [301090, 302031, 302035, 302036, 302047, 8002, 302048,
+         302037, 302043, 302044, 101002, 302045, 302046],
+        [307096, 22061, 20058, 4024, 13012, 4024],
+        [307079, 4025, 11042]]
+    return(iter_messages(bufr_files, **filters))
+
+
 def get_msg(bufr_files, msg=1, subset=None):
-    """Get handle to the message
+    """Get handle(s) to the message(s)
 
     You have to release bufr_handle(s) after use
 
@@ -300,140 +442,6 @@ def read_msg(bufr_file, msg=None, subset=None):
             _ec.codes_release(bufr_handle)
             if len(msg) == 0:
                 break
-
-
-def iter_messages(bufr_files, release_resources=True, **filters):
-    """Iterate over messages in BUFR files(s)
-
-    Also messages can be filtered by message id and header keys.
-    if msg_id is defined other rules are ignored.
-
-    This is a generator function
-
-    :param bufr_files: Path to bufr file(s)
-    :param **filters: Dictionary of keys to filter
-        msg_id (Message id)
-        edition
-        masterTableNumber
-        bufrHeaderCentre
-        bufrHeaderSubCentre
-        updateSequenceNumber
-        dataCategory
-        internationalDataSubCategory
-        dataSubCategory
-        masterTablesVersionNumber
-        localTablesVersionNumber
-        typicalYear
-        typicalMonth
-        typicalDay
-        typicalHour
-        typicalMinute
-        typicalSecond
-        observedData
-        compressedData
-        unexpandedDescriptor
-        typicalTime
-        typicalDate
-    :return: Yields bufr_handle
-    """
-
-    def key_value_found(fl, i, bufr_handle):
-        if fl[0] is None:
-            return(True)
-        if fl[0] == 'msg_id':
-            return(i in fl[1])
-        else:
-            val = get_val(bufr_handle, fl[0])
-            if not isinstance(val, list):
-                val = [val]
-            ret = [v == val if isinstance(v, list) else v in val
-                   for v in fl[1]]
-            return(any(ret))
-
-    def iter_file(bufr_file, filters):
-        if len(filters) == 0:
-            filters = [[None, None]]
-        bufr_handles = []
-        with open(bufr_file, 'rb') as f:
-            msg_id = 0
-            while True:
-                bufr_handle = _ec.codes_bufr_new_from_file(f)
-                msg_id += 1
-                if bufr_handle is None:
-                    break
-                if key_value_found(filters[0], msg_id, bufr_handle):
-                    bufr_handles.append(bufr_handle)
-                    continue
-                _ec.codes_release(bufr_handle)
-
-        for j in range(1, len(filters)):
-            for i in range(len(bufr_handles) - 1, -1, -1):
-                if not key_value_found(filters[j], 0, bufr_handles[i]):
-                    _ec.codes_release(bufr_handles[i])
-                    del bufr_handles[i]
-
-        return(bufr_handles)
-
-    if not isinstance(bufr_files, list):
-        bufr_files = [bufr_files]
-
-    filters = {k: v for k, v in filters.items() if v is not None}
-    for k in filters.keys():
-        if not isinstance(filters[k], list):
-            filters[k] = [filters[k]]
-
-    if 'msg_id' in filters.keys():
-        filters = {'msg_id': filters['msg_id']}
-
-    n = 0
-    for f in bufr_files:
-        handles = iter_file(f, [[k, v] for k, v in filters.items()])
-        for h in handles:
-            yield h
-            if release_resources:
-                _ec.codes_release(h)
-                n += 1
-
-
-def iter_synop(bufr_files, **filters):
-    """Iterates synop messages in BUFR file(s)
-
-    This is a generator function
-
-    :param bufr_files: BUFR file(s)
-    :return: yields handle to synop BUFR message
-    """
-
-    filters['dataCategory'] = 0
-    filters['unexpandedDescriptors'] = [
-        307080, 307086, 307096,
-        [307086, 1023, 4025, 2177, 101000, 31001, 20003,
-         103000, 31001, 5021, 20001, 5021, 101000, 31000,
-         302056, 103000, 31000, 33041, 20058, 22061, 101000,
-         31000, 302022, 101000, 31001, 302023, 103000, 31001,
-         20054, 20012, 20090, 4025, 13012, 4025, 11042,
-         104000, 31001, 8021, 4025, 11042, 8021, 115000,
-         31001, 8021, 4015, 8021, 4025, 11001, 11002, 8021,
-         4015, 8021, 4025, 11001, 11002, 8021, 4025, 4015,
-         103000, 31001, 4025, 4025, 20003, 111000, 31001,
-         4025, 4025, 5021, 5021, 20054, 20024, 20025, 20026,
-         20027, 20063, 8021],
-        [301090, 302031, 302035, 302036, 302047, 8002, 302048,
-         302037, 302043, 302044, 101002, 302045, 302046],
-        [307096, 22061, 20058, 4024, 13012, 4024],
-        [307079, 4025, 11042]]
-    return(iter_messages(bufr_files, **filters))
-
-
-def dump(bufr_files, bufr_out, generator_fun, **kwargs):
-    n = 0
-    with open(bufr_out, 'wb') as fout:
-        for bufr_handle in generator_fun(bufr_files, **kwargs):
-            n += 1
-            _ec.codes_write(bufr_handle, fout)
-    if n == 0:
-        _os.remove(bufr_out)
-    return(n)
 
 
 def synop(bufr_files, decode_code_table=False, **filters):
