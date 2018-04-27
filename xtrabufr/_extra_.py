@@ -12,12 +12,32 @@ import eccodes as _ec
 from numpy import ndarray as _nd
 from sys import stderr as _stderr
 from collections import OrderedDict as _od
+from definitions import get_value_from_code_table as _get_value_from_code_table
 
-__all__ = ['msg_count', 'extract_subset', 'get_msg', 'copy_msg_from_file']
+__all__ = ['msg_count', 'extract_subset', 'get_msg', 'copy_msg_from_file',
+           'iter_messages', 'iter_synop', 'dump', 'synop']
 
 
 def _eprint_(*args, **kwargs):
     print('ERROR: ', *args, file=_stderr, **kwargs)
+
+
+def get_attr(bufr_handle, key):
+    """Get attributes of a key
+
+    :param bufr: Handle to BUFR file
+    :returns: List of keys
+    """
+    attrs = ['code', 'units', 'scale', 'reference', 'width']
+    attributes = _od.fromkeys(attrs)
+    for a in attrs:
+        k = key + '->' + a
+        try:
+            attributes[a] = _ec.codes_get(bufr_handle, k)
+        except _ec.CodesInternalError as e:
+            # eprint('Error with key="%s" : %s' % (k, e.msg))
+            continue
+    return(attributes)
 
 
 def get_keys(bufr_handle):
@@ -50,6 +70,8 @@ def get_val(bufr_handle, key):
         if isinstance(v, float):
             if v == _ec.CODES_MISSING_DOUBLE:
                 v = None
+            else:
+                v = round(v, 6)
         if isinstance(v, int):
             if v == _ec.CODES_MISSING_LONG:
                 v = None
@@ -65,6 +87,9 @@ def get_val(bufr_handle, key):
                 for i, j in enumerate(v):
                     if j == _ec.CODES_MISSING_DOUBLE:
                         v[i] = None
+                    else:
+                        v[i] = round(v[i], 6)
+
         return(v)
     return(v)
 
@@ -268,13 +293,15 @@ def read_msg(bufr_file, msg=None, subset=None):
                 break
 
 
-def bufr_filter(bufr_files, **kwargs):
-    """ Filter BUFR files(s) by condition
+def iter_messages(bufr_files, **filters):
+    """Iterate over messages in BUFR files(s)
 
-    This function works only for header keys.
+    Also messages can be filtered by header keys.
+
+    This is a generator
 
     :param bufr_files: Path to bufr file(s)
-    :param **kwargs: A valid key to filter
+    :param **filters: Dictionary of keys to filter
         edition
         masterTableNumber
         bufrHeaderCentre
@@ -299,7 +326,17 @@ def bufr_filter(bufr_files, **kwargs):
     :return: Yields bufr_handle
     """
 
-    def bufr_filter_file(bufr_file, filters):
+    def is_equal(x, y):
+        ret = []
+        for v in x:
+            if isinstance(v, list):
+                ret.append(v == y)
+            else:
+                ret.append(v in y)
+        return(any(ret))
+
+    def iter_file(bufr_file, filters):
+        print(bufr_file)
         bufr_handles = []
         fltr = filters[:]
         fl = fltr[0]
@@ -312,7 +349,7 @@ def bufr_filter(bufr_files, **kwargs):
                 val = get_val(bufr_handle, fl[0])
                 if not isinstance(val, list):
                     val = [val]
-                if any([v in val for v in fl[1]]):
+                if is_equal(fl[1], val):
                     bufr_handles.append(bufr_handle)
                     continue
                 _ec.codes_release(bufr_handle)
@@ -322,7 +359,7 @@ def bufr_filter(bufr_files, **kwargs):
                 val = get_val(bufr_handles[i], fl[0])
                 if not isinstance(val, list):
                     val = [val]
-                if not any([v in val for v in fl[1]]):
+                if not is_equal(fl[1], val):
                     _ec.codes_release(bufr_handles[i])
                     del bufr_handles[i]
         bufr_handles = [i for i in bufr_handles if i > -1]
@@ -331,28 +368,137 @@ def bufr_filter(bufr_files, **kwargs):
     if not isinstance(bufr_files, list):
         bufr_files = [bufr_files]
 
-    kw = {k: v for k, v in kwargs.items() if v is not None}
-    for k in kw.keys():
-        if not isinstance(kw[k], list):
-            kw[k] = [kw[k]]
+    filters = {k: v for k, v in filters.items() if v is not None}
+    for k in filters.keys():
+        if not isinstance(filters[k], list):
+            filters[k] = [filters[k]]
 
-    filters = [[k, v] for k, v in kw.items()]
+    filters = [[k, v] for k, v in filters.items()]
 
+    n = 0
     for f in bufr_files:
-        handles = bufr_filter_file(f, filters)
+        handles = iter_file(f, filters)
         for h in handles:
             yield h
             _ec.codes_release(h)
+            n += 1
+    print(n, 'released')
 
 
-def bufr_filter_dump(bufr_files, bufr_out, plain=False, **kwargs):
+def iter_synop(bufr_files, **filters):
+    """Filter synop messages from BUFR file
+
+    This is a generator
+
+    :param bufr_files: BUFR file(s)
+    :return: yields handle to synop BUFR message
+    """
+
+    filters['dataCategory'] = 0
+    filters['unexpandedDescriptors'] = [
+        307080, 307086, 307096,
+        [307086, 1023, 4025, 2177, 101000, 31001, 20003,
+         103000, 31001, 5021, 20001, 5021, 101000, 31000,
+         302056, 103000, 31000, 33041, 20058, 22061, 101000,
+         31000, 302022, 101000, 31001, 302023, 103000, 31001,
+         20054, 20012, 20090, 4025, 13012, 4025, 11042,
+         104000, 31001, 8021, 4025, 11042, 8021, 115000,
+         31001, 8021, 4015, 8021, 4025, 11001, 11002, 8021,
+         4015, 8021, 4025, 11001, 11002, 8021, 4025, 4015,
+         103000, 31001, 4025, 4025, 20003, 111000, 31001,
+         4025, 4025, 5021, 5021, 20054, 20024, 20025, 20026,
+         20027, 20063, 8021],
+        [301090, 302031, 302035, 302036, 302047, 8002, 302048,
+         302037, 302043, 302044, 101002, 302045, 302046],
+        [307096, 22061, 20058, 4024, 13012, 4024],
+        [307079, 4025, 11042]]
+    return(iter_messages(bufr_files, **filters))
+
+
+def dump(bufr_files, bufr_out, generator_fun, **kwargs):
     n = 0
     with open(bufr_out, 'wb') as fout:
-        for bufr_handle in bufr_filter(bufr_files, **kwargs):
-            if bufr_handle is not None:
-                n += 1
-                _ec.codes_write(bufr_handle, fout)
+        for bufr_handle in generator_fun(bufr_files, **kwargs):
+            n += 1
+            _ec.codes_write(bufr_handle, fout)
     if n == 0:
         _os.remove(bufr_out)
     return(n)
 
+
+def synop(bufr_files, decode_code_table=False, **filters):
+    """ Read synop messages from files
+    """
+    _synop_keys_ = [
+        'masterTablesVersionNumber', 'bufrHeaderCentre',
+        'updateSequenceNumber', 'blockNumber', 'stationNumber',
+        'stationType', 'stationOrSiteName', 'year', 'month', 'day', 'hour',
+        'minute', 'latitude', 'longitude',
+        '#1#heightOfStationGroundAboveMeanSeaLevel',
+        '#1#heightOfBarometerAboveMeanSeaLevel', '#1#nonCoordinatePressure',
+        '#1#pressureReducedToMeanSeaLevel', '#1#3HourPressureChange',
+        '#1#characteristicOfPressureTendency', '#1#pressure',
+        '#1#airTemperature', '#1#dewpointTemperature', '#1#relativeHumidity',
+        '#1#horizontalVisibility', '#1#cloudCoverTotal',
+        '#1#heightOfBaseOfCloud', '#1#cloudType', '#2#cloudType',
+        '#3#cloudType', '#1#presentWeather', '#1#pastWeather1',
+        '#1#pastWeather2', '#1#windSpeed', '#1#windDirection']
+
+    def read_synop_compressed(bufr_handle):
+        """Read compressed message from BUFR file
+        :param bufr_handle: Handle to BUFR file
+        :returns: (dict) Read message
+        """
+        ret = _od([(k, get_val(bufr_handle, k)) for k in _synop_keys_])
+        for k in ret.keys():
+            if not isinstance(ret[k], list):
+                ret[k] = [ret[k]]
+        return(ret)
+
+    def read_synop_uncompressed(bufr_handle):
+        """Read uncompressed message from BUFR file
+        :param bufr_handle: Handle to BUFR file
+        :returns: (dict) Read message
+        """
+
+        ret = _od([(k, []) for k in _synop_keys_])
+        for i in range(1, get_val(bufr_handle, 'numberOfSubsets') + 1):
+            try:
+                subset = extract_subset(bufr_handle, i)
+            except _ec.CodesInternalError as e:
+                _eprint_('MSG #{} - Subset #{} "{}"'.format(1, i, e.msg))
+                continue
+            for k in _synop_keys_:
+                try:
+                    val = get_val(subset, k)
+                except _ec.KeyValueNotFoundError:
+                    val = ''
+                ret[k].append(val)
+            _ec.codes_release(subset)
+        return(ret)
+
+    # ret = _od([(k, []) for k in _synop_keys_])
+    for bufr_handle in iter_synop(bufr_files, **filters):
+        try:
+            _ec.codes_set(bufr_handle, 'unpack', 1)
+        except _ec.DecodingError as e:
+            # _eprint_('MSG #{} {}'.format(cnt, e.msg))
+            continue
+        attrib = _od([(k, get_attr(bufr_handle, k)) for k in _synop_keys_])
+        compressed = get_val(bufr_handle, 'compressedData') == 1
+        # print(cnt, compressed)
+        read = read_synop_compressed if compressed \
+            else read_synop_uncompressed
+        r = read(bufr_handle)
+        if decode_code_table:
+            mtvn = get_val(bufr_handle, 'masterTablesVersionNumber')
+            for k in r.keys():
+                if attrib[k]['units'] == 'CODE TABLE':
+                    r[k] = _get_value_from_code_table(
+                        r[k], attrib[k]['code'], mtvn)
+
+        yield r
+        # for k in _synop_keys_:
+        #     ret[k].extend(r[k])
+
+    # return(ret)

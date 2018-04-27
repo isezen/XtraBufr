@@ -4,6 +4,7 @@ xtrabufr._eccodes_tools_
 Functions from ecCodes tools
 """
 
+from __future__ import print_function
 import os as _os
 from collections import OrderedDict as _od
 from subprocess import check_output as _chekout
