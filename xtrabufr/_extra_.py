@@ -229,6 +229,9 @@ def iter_messages(bufr_files, release_resources=True, **filters):
                 msg_id += 1
                 if bufr_handle is None:
                     break
+                if filters[0] == 'msg_id':
+                    if msg_id > max(filters[1]):
+                        break
                 if key_value_found(filters[0], msg_id, bufr_handle):
                     bufr_handles.append(bufr_handle)
                     continue
@@ -250,6 +253,11 @@ def iter_messages(bufr_files, release_resources=True, **filters):
         if not isinstance(filters[k], list):
             filters[k] = [filters[k]]
 
+    subset = None
+    if 'subset' in filters.keys():
+        subset = filters['subset']
+        del filters['subset']
+
     if 'msg_id' in filters.keys():
         filters = {'msg_id': filters['msg_id']}
 
@@ -257,7 +265,11 @@ def iter_messages(bufr_files, release_resources=True, **filters):
     for f in bufr_files:
         handles = iter_file(f, [[k, v] for k, v in filters.items()])
         for h in handles:
-            yield h
+            if subset is not None:
+                s = extract_subset(h, subset)
+                _ec.codes_release(h)
+                h = s
+            yield(h)
             if release_resources:
                 _ec.codes_release(h)
                 n += 1
@@ -296,20 +308,16 @@ def iter_synop(bufr_files, **filters):
 def get_msg(bufr_files, msg=1, subset=None):
     """Get handle(s) to the message(s)
 
-    You have to release bufr_handle(s) after use
+    You have to release bufr_handle(s) after use. This is a wrapper around
+    iter_messages function.
 
     :param bufr_files: BUFR files to read
     :param msg: Id of message or a list contains Ids
     :param subset: Subset Number or interval to extract subsets
     :returns: bufr_handle or list of bufr_handles
     """
-    handles = []
-    for i in iter_messages(bufr_files, release_resources=False, msg_id=msg):
-        if subset is None:
-            handles.append(i)
-        else:
-            handles.append(extract_subset(i, subset))
-            _ec.codes_release(i)
+    handles = [i for i in iter_messages(bufr_files, release_resources=False,
+                                        msg_id=msg, subset=subset)]
     if len(handles) == 1:
         return(handles[0])
     return(handles)
@@ -326,11 +334,7 @@ def copy_msg(bufr_files, bufr_out, msg=1, subset=None):
     :param subset: Number of subset(s)
     :returns: Number of copied messages
     """
-    def iter_msg(bufr_files, **f):
-        for i in iter_messages(bufr_files, msg_id=f['msg_id']):
-            yield(i if subset is None else extract_subset(i, f['subset']))
-
-    return(dump(bufr_files, bufr_out, iter_msg,
+    return(dump(bufr_files, bufr_out, iter_messages,
                 **{'msg_id': msg, 'subset': subset}))
 
 
