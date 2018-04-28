@@ -10,7 +10,11 @@ from __future__ import print_function
 import os as _os
 import eccodes as _ec
 from numpy import ndarray as _nd
-from sys import stderr as _stderr
+import sys as _sys
+# from sys import stderr as _stderr
+# from sys import stdin as _stdin
+# from sys import stdout as _stdout
+from contextlib import contextmanager as _contextmanager
 from collections import OrderedDict as _od
 from definitions import get_value_from_code_table as _get_value_from_code_table
 
@@ -28,7 +32,7 @@ _header_keys_ = ['edition', 'masterTableNumber', 'bufrHeaderCentre',
 
 
 def _eprint_(*args, **kwargs):
-    print('ERROR: ', *args, file=_stderr, **kwargs)
+    print('ERROR: ', *args, file=_sys.stderr, **kwargs)
 
 
 def get_attr(bufr_handle, key):
@@ -151,6 +155,17 @@ def msg_count(bufr_file):
     return(ret)
 
 
+@_contextmanager
+def _open_(filename, mode='Ur'):
+    f = (_sys.stdin if mode is None or mode == '' or 'r' in mode
+         else _sys.stdout) if filename == '-' else open(filename, mode)
+    try:
+        yield f
+    finally:
+        if filename is not '-':
+            f.close()
+
+
 def dump(bufr_files, bufr_out, generator_fun, **kwargs):
     """dump result of generator function to a file
 
@@ -161,7 +176,7 @@ def dump(bufr_files, bufr_out, generator_fun, **kwargs):
     :returns: Number of dumped messages
     """
     n = 0
-    with open(bufr_out, 'wb') as fout:
+    with _open_(bufr_out, 'wb') as fout:
         for bufr_handle in generator_fun(bufr_files, **kwargs):
             n += 1
             _ec.codes_write(bufr_handle, fout)
@@ -174,13 +189,14 @@ def iter_messages(bufr_files, release_resources=True, **filters):
     """Iterate over messages in BUFR files(s)
 
     Also messages can be filtered by message id and header keys.
-    if msg_id is defined other rules are ignored.
+    if msg_id is defined other rules are ignored except subset.
 
     This is a generator function
 
     :param bufr_files: Path to bufr file(s)
     :param **filters: Dictionary of keys to filter
         msg_id (Message id)
+        subset (Subset Id)
         edition
         masterTableNumber
         bufrHeaderCentre
@@ -205,7 +221,7 @@ def iter_messages(bufr_files, release_resources=True, **filters):
     :return: Yields bufr_handle
     """
 
-    def key_value_found(fl, i, bufr_handle):
+    def key_value_found(fl, bufr_handle, i=0):
         if fl[0] is None:
             return(True)
         if fl[0] == 'msg_id':
@@ -222,7 +238,7 @@ def iter_messages(bufr_files, release_resources=True, **filters):
         if len(filters) == 0:
             filters = [[None, None]]
         bufr_handles = []
-        with open(bufr_file, 'rb') as f:
+        with _open_(bufr_file, 'rb') as f:
             msg_id = 0
             while True:
                 bufr_handle = _ec.codes_bufr_new_from_file(f)
@@ -232,14 +248,14 @@ def iter_messages(bufr_files, release_resources=True, **filters):
                 if filters[0] == 'msg_id':
                     if msg_id > max(filters[1]):
                         break
-                if key_value_found(filters[0], msg_id, bufr_handle):
+                if key_value_found(filters[0], bufr_handle, msg_id):
                     bufr_handles.append(bufr_handle)
                     continue
                 _ec.codes_release(bufr_handle)
 
         for j in range(1, len(filters)):
             for i in range(len(bufr_handles) - 1, -1, -1):
-                if not key_value_found(filters[j], 0, bufr_handles[i]):
+                if not key_value_found(filters[j], bufr_handles[i]):
                     _ec.codes_release(bufr_handles[i])
                     del bufr_handles[i]
 
@@ -439,7 +455,7 @@ def read_msg(bufr_file, msg=None, subset=None):
                 try:
                     _ec.codes_set(bufr_handle, 'unpack', 1)
                 except _ec.DecodingError as e:
-                    _eprint_('MSG #{} {}'.format(msg, e.msg))
+                    _eprint_('MSG #{} {}'.format(i, e.msg))
                     continue
                 yield(i, fun(bufr_handle, i, subset))
 
