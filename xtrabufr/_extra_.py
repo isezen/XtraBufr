@@ -157,6 +157,7 @@ def msg_count(bufr_file):
 
 @_contextmanager
 def _open_(filename, mode='Ur'):
+    """Open a file or pipe to stdin/stdout"""
     f = (_sys.stdin if mode is None or mode == '' or 'r' in mode
          else _sys.stdout) if filename == '-' else open(filename, mode)
     try:
@@ -181,7 +182,8 @@ def dump(bufr_files, bufr_out, generator_fun, **kwargs):
             n += 1
             _ec.codes_write(bufr_handle, fout)
     if n == 0:
-        _os.remove(bufr_out)
+        if bufr_out != '-':
+            _os.remove(bufr_out)
     return(n)
 
 
