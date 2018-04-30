@@ -15,11 +15,11 @@ from argparse import RawTextHelpFormatter as _rtformatter
 from . import (__version__, __name__, __author__, __license__, __year__)
 from .objects import Descriptors
 from ._extra_ import copy_msg
-from ._extra_ import read_msg
 from ._extra_ import iter_messages
 from ._extra_ import iter_synop
 from ._extra_ import synop
 from ._extra_ import dump
+from ._extra_ import decode
 from ._helper_ import print_msg
 
 # See: https://stackoverflow.com/questions/20165843/argparse-how-to-handle-variable-number-of-arguments-nargs?utm_medium=organic&utm_source=google_rich_qa&utm_campaign=google_rich_qa
@@ -108,7 +108,8 @@ def _xbsynop_():
 
 
 def _xbfilter_():
-    description = 'Filter messages of a BUFR file by header keys.\n' + \
+    description = 'Filter messages of a BUFR file by header keys\n' + \
+                  'or message id or subset id.\n' + \
                   'Optional arguments can be used to filter output.\n\n' + \
                   ' N       : An integer Numeric value\n' + \
                   ' YYYMMDD : Year, Month and day (adjacent)\n' + \
@@ -120,7 +121,9 @@ def _xbfilter_():
              ' %(prog)s out.bufr in.bufr -hc 91 -dc 0 -y 2018\n' + \
              ' %(prog)s out.bufr in*.bufr -hc 91 -dc 0 -td 20180324\n'
     p = _create_argparser_(description, epilog)
-    for a in [['-ed', '--edition', int, 'N', 'Edition'],
+    for a in [['-m', '--msg', int, 'N', 'Message Id(s)'],
+              ['-s', '--subset', int, 'N', 'Subset Id(s)'],
+              ['-ed', '--edition', int, 'N', 'Edition'],
               ['-dc', '--dataCategory', int, 'N', 'Data Category'],
               ['-id', '--internationalDataSubCategory', int, 'N',
                'International Data Sub-Category'],
@@ -128,9 +131,9 @@ def _xbfilter_():
               ['-cd', '--compressedData', int, 'N', 'Compressed Data'],
               ['-hc', '--bufrHeaderCentre', int, 'N', 'Header Centre'],
               ['-td', '--typicalDate', str, 'YYYYMMDD', 'Typical Date'],
-              ['-y', '--typicalYear', int, 'N', 'Typical Year'],
-              ['-m', '--typicalMonth', int, 'N', 'Typical Month'],
-              ['-d', '--typicalDay', int, 'N', 'Typical Day'],
+              ['-yr', '--typicalYear', int, 'N', 'Typical Year'],
+              ['-mo', '--typicalMonth', int, 'N', 'Typical Month'],
+              ['-da', '--typicalDay', int, 'N', 'Typical Day'],
               ['-tt', '--typicalTime', str, 'HHMMSS', 'Typical Time'],
               ['-th', '--typicalHour', int, 'N', 'Typical Hour'],
               ['-tm', '--typicalMinute', int, 'N', 'Typical Minute'],
@@ -142,7 +145,7 @@ def _xbfilter_():
     # p.add_argument('-p', '--plain', help="Plain dump",
     #                action="store_true")
     p.add_argument('bufr_out', type=str, nargs='?',
-                   help='Output BUFR file\n' +
+                   help='Output BUFR file (if -, redirect to stdout)\n' +
                         'Save messages to the file')
     p.add_argument('bufr_files', type=str, nargs='+',
                    help='BUFR files to process\n' +
@@ -153,7 +156,7 @@ def _xbfilter_():
     del args.bufr_files, args.bufr_out
     try:
         n = dump(bufr_files, bufr_out, iter_messages, **args.__dict__)
-        print(n, 'messages filtered out.')
+        print(n, 'messages were filtered.')
         return(0)
     except KeyboardInterrupt:
         print("Process stopped")
@@ -181,10 +184,10 @@ def _xbprint_():
                    help='BUFR file to process')
 
     args = p.parse_args()
-
     try:
-        for i, m in read_msg(args.bufr_file, args.msg, args.subset):
-            print_msg({i: m}, args.bufr_file, args.ignore)
+        for bh in iter_messages(args.bufr_file, msg=args.msg,
+                                subset=args.subset):
+            print_msg({bh.id: decode(bh)}, args.bufr_file, args.ignore)
         return(0)
     except KeyboardInterrupt:
         print("Process stopped")
