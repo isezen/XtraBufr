@@ -98,7 +98,7 @@ def _xbsynop_():
                     li = [v for _, v in s.items()]
                     li = map(list, zip(*li))
                     writer.writerows(li)
-        print(n, 'messages filtered out.')
+        print(n, 'messages  were filtered.')
         return(0)
     except KeyboardInterrupt:
         print("Process stopped")
