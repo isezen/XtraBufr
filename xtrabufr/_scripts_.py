@@ -18,6 +18,9 @@ from ._extra_ import copy_msg
 from ._extra_ import iter_messages
 from ._extra_ import iter_synop
 from ._extra_ import synop
+from ._extra_ import synop_to_csv
+from ._extra_ import synop_to_json
+from ._extra_ import json
 from ._extra_ import dump
 from ._extra_ import decode
 from ._helper_ import print_msg
@@ -87,18 +90,15 @@ def _xbsynop_():
     try:
         n = 0
         if out == 'bufr':
-            n = dump(bufr_files, bufr_out, iter_synop, **args.__dict__)
+            n = dump(iter_synop(bufr_files, **args.__dict__), bufr_out)
         elif out == 'csv':
-            with open(bufr_out, 'wb') as f:
-                writer = _csv.writer(f, delimiter=';')
-                for s in synop(bufr_files, decode_code_table, **args.__dict__):
-                    if n == 0:
-                        writer.writerow(s.keys())
-                    n += 1
-                    li = [v for _, v in s.items()]
-                    li = map(list, zip(*li))
-                    writer.writerows(li)
-        print(n, 'messages  were filtered.')
+            n = synop_to_csv(bufr_files, bufr_out,
+                             decode_code_table, **args.__dict__)
+        elif out == 'json':
+            n = synop_to_json(bufr_files, bufr_out, decode_code_table,
+                              **args.__dict__)
+            # n = json(iter_synop(bufr_files, **args.__dict__), bufr_out)
+        print(n, 'messages were filtered.')
         return(0)
     except KeyboardInterrupt:
         print("Process stopped")
@@ -155,7 +155,7 @@ def _xbfilter_():
     bufr_out = args.bufr_out
     del args.bufr_files, args.bufr_out
     try:
-        n = dump(bufr_files, bufr_out, iter_messages, **args.__dict__)
+        n = dump(iter_messages(bufr_files, **args.__dict__), bufr_out)
         print(n, 'messages were filtered.')
         return(0)
     except KeyboardInterrupt:

@@ -8,18 +8,21 @@ from __future__ import print_function
 # from __future__ import absolute_import
 
 import os as _os
-import eccodes as _ec
-from numpy import ndarray as _nd
 import sys as _sys
-from copy import copy as _copy 
+import csv as _csv
+import eccodes as _ec
+import json as _json
+from numpy import ndarray as _nd
 from copy import deepcopy as _deepcopy
-from contextlib import contextmanager as _contextmanager
 from collections import OrderedDict as _od
+from types import GeneratorType as _GeneratorType
+from contextlib import contextmanager as _contextmanager
 from definitions import get_value_from_code_table as _get_value_from_code_table
 
 __all__ = ['msg_count', 'extract_subset', 'get_msg', 'decode', 'copy_msg',
            'header', 'iter_messages', 'iter_synop', 'dump', 'synop',
-           'BufrHandle', 'new_msg_from', 'nsubsets']
+           'BufrHandle', 'new_msg_from', 'nsubsets', 'to_csv', 'synop_to_csv',
+           'synop_to_json', 'json']
 
 
 _header_keys_ = ['edition', 'masterTableNumber', 'bufrHeaderCentre',
@@ -29,6 +32,20 @@ _header_keys_ = ['edition', 'masterTableNumber', 'bufrHeaderCentre',
                  'typicalYear', 'typicalMonth', 'typicalDay', 'typicalHour',
                  'typicalMinute', 'typicalSecond', 'numberOfSubsets',
                  'observedData', 'compressedData', 'unexpandedDescriptors']
+
+_synop_keys_ = [
+    'masterTablesVersionNumber', 'bufrHeaderCentre',
+    'blockNumber', 'stationNumber', 'stationType', 'stationOrSiteName',
+    'year', 'month', 'day', 'hour', 'minute', 'latitude', 'longitude',
+    '#1#heightOfStationGroundAboveMeanSeaLevel',
+    '#1#heightOfBarometerAboveMeanSeaLevel', '#1#nonCoordinatePressure',
+    '#1#pressureReducedToMeanSeaLevel', '#1#3HourPressureChange',
+    '#1#characteristicOfPressureTendency', '#1#pressure',
+    '#1#airTemperature', '#1#dewpointTemperature', '#1#relativeHumidity',
+    '#1#horizontalVisibility', '#1#cloudCoverTotal',
+    '#1#heightOfBaseOfCloud', '#1#cloudType', '#2#cloudType',
+    '#3#cloudType', '#1#presentWeather', '#1#pastWeather1',
+    '#1#pastWeather2', '#1#windSpeed', '#1#windDirection']
 
 
 class BufrHandle(object):
@@ -136,6 +153,11 @@ def get_attributes(bufr_handle, keys):
     :returns: (OrderedDict) key names and attributes
     """
     return(_od([(k, get_attr(bufr_handle, k)) for k in keys]))
+
+
+def get_size(bufr_handle):
+    """Get message size in bytes"""
+    return(_ec.codes_get_message_size(bufr_handle.handle))
 
 
 def get_keys(bufr_handle):
@@ -285,9 +307,10 @@ def decode(bufr_handle, keys=None):
         keys2 = [k for k in get_keys(bufr_handle) if k not in h.keys()] \
             if keys is None else keys
         ret = _od([(k, get_val(bufr_handle, k)) for k in keys2])
-        for k in ret.keys():
-            if not isinstance(ret[k], list):
-                ret[k] = [ret[k]]
+        if keys is not None:
+            for k in ret.keys():
+                if not isinstance(ret[k], list):
+                    ret[k] = [ret[k]]
         return(ret)
 
     def decode_comp():
@@ -313,7 +336,7 @@ def decode(bufr_handle, keys=None):
 
     fun = decode_comp if bufr_handle.compressed else decode_uncomp
     if keys is None:
-        return({'header': h, 'subset': fun()})
+        return(_od([('header', h), ('subset', fun())]))
     else:
         return(fun())
 
@@ -345,28 +368,76 @@ def new_msg_from(bufr_file):
             yield(BufrHandle(h, i, bufr_file))
 
 
-def dump(bufr_files, bufr_out, generator_fun, format='bufr', **kwargs):
-    """Dump result of generator function to a file
+def dump(x, bufr_out=None):
+    """Dump a BufrHandle object or results of a generator function
 
-    :param bufr_files: List of BUFR files
+    If x is BufrHandle object, bufr_out is ignored
+    If bufr_out is None, binary content of the message(s) is returned.
+    If bufr_out is '-', binary content sent to stdout.
+
+    :param x: A BufrHandle object or a function generates BufrHandle objects
     :param bufr_out: Path to output file
-    :param generator_fun: A function generates BUFR handles
-    :param format: Output format [bufr, plain, csv, json]
-    :param kwargs: Arguments to be passed to generator_fun
-    :returns: Number of dumped messages
+    :returns: Number of dumped messages or binary content of messages
     """
-    formats = ['bufr', 'plain', 'csv', 'json']
-    if format not in formats:
-        raise ValueError('Invalid format. Expected one of: %s' % formats)
-    n = 0
-    with _open_(bufr_out, 'wb') as fout:
-        for bh in generator_fun(bufr_files, **kwargs):
-            n += 1
-            _ec.codes_write(bh.handle, fout)
-    if n == 0:
-        if bufr_out != '-':
-            _os.remove(bufr_out)
-    return(n)
+    if bufr_out is None:
+        if isinstance(x, BufrHandle):
+            return(_ec.codes_get_message(x.handle))
+        elif isinstance(x, _GeneratorType) or isinstance(x, list):
+            return(b''.join([dump(h) for h in x]))
+    else:
+        r = 0
+        with _open_(bufr_out, 'wb') as f:
+            if isinstance(x, BufrHandle):
+                r = 1
+                _ec.codes_write(x.handle, f)
+            elif isinstance(x, _GeneratorType) or isinstance(x, list):
+                for h in x:
+                    r += 1
+                    _ec.codes_write(h.handle, f)
+            if r == 0 and bufr_out != '-':
+                _os.remove(bufr_out)
+        return(r)
+    raise TypeError('x must be a BufrHandle object, or a list/generator \
+        of BufrHandle objects')
+
+
+def json(x, file_out=None, keys=None):
+    """Convert a BufrHandle object or results of a generator function to JSON
+
+    If x is BufrHandle object, bufr_out is ignored
+    If bufr_out is None, binary content of the message(s) is returned.
+    If bufr_out is '-', binary content sent to stdout.
+
+    :param x: A BufrHandle object or a function generates BufrHandle objects
+    :param bufr_out: Path to output file
+    :returns: Number of dumped messages or binary content of messages
+    """
+    if file_out is None:
+        if isinstance(x, BufrHandle):
+            return(_json.dumps(decode(x, keys)))
+        elif isinstance(x, _GeneratorType) or isinstance(x, list):
+            return(_json.dumps([decode(h, keys) for h in x]))
+    else:
+        r = 0
+        with _open_(file_out, 'w') as f:
+            r = 1
+            if isinstance(x, BufrHandle):
+                _json.dump(decode(x, keys), f, ensure_ascii=False, indent=4)
+            elif isinstance(x, _GeneratorType) or isinstance(x, list):
+                d = [decode(h, keys) for h in x]
+                if keys is not None:
+                    s = _od([(k, []) for k in keys])
+                    for i in d:
+                        for k in keys:
+                            s[k].extend(i[k])
+                    d = s
+                _json.dump(d, f, ensure_ascii=False, indent=4)
+                r = len(d)
+        if r == 0 and file_out != '-':
+            _os.remove(file_out)
+        return(r)
+    raise TypeError('x must be a BufrHandle object, or a list/generator \
+        of BufrHandle objects')
 
 
 def iter_subsets(bufr_handle):
@@ -512,8 +583,8 @@ def get_msg(bufr_files, msg=1, subset=None):
     :param subset: Subset Number or interval to extract subsets
     :returns: BufrHandle object or list of BufrHandle objects
     """
-    handles = [bh for bh in iter_messages(bufr_files,
-                                          msg_id=msg, subset=subset)]
+    handles = [h for h in iter_messages(bufr_files,
+                                        msg=msg, subset=subset)]
     if len(handles) == 1:
         return(handles[0])
     return(handles)
@@ -524,32 +595,62 @@ def copy_msg(bufr_files, bufr_out, msg=1, subset=None):
 
     Whole message is copied if subset was not defined.
 
-    :param bufr_in: Path to BUFR file to read
+    :param bufr_files: Path to BUFR file(s) to read
     :param bufr_out: Path to BUFR file to save
-    :param msg: Number of message(s)
-    :param subset: Number of subset(s)
+    :param msg: Id's of message(s)
+    :param subset: Id's subset(s)
     :returns: Number of copied messages
     """
-    return(dump(bufr_files, bufr_out, iter_messages,
-                **{'msg': msg, 'subset': subset}))
+    return(dump(iter_messages(bufr_files, **{'msg': msg, 'subset': subset}),
+                bufr_out))
+
+
+def to_csv(keys, generator_fun, bufr_out='-', decode_code_table=False):
+    """Save values of keys to a csv file
+
+    You must define keys, so each key will be saved as column into the csv.
+
+    :param keys: Keys to save to csv
+    :param generator_fun: A function generates BufrHandle object(s)
+    :param bufr_out: Output file name (default is stdout)
+    :param decode_code_table: If True, CODE TABLE values are saved
+    :returns: None"""
+    n = 0
+    with _open_(bufr_out, 'w') as f:
+        writer = _csv.writer(f, delimiter=';')
+        for bh in generator_fun:
+            for s in iter_subsets(bh):
+                r = [get_val(s, k) for k in keys]
+                if decode_code_table:
+                    mtvn = get_val(s, 'masterTablesVersionNumber')
+                    attrib = get_attributes(s, keys)
+                    for i, k in enumerate(keys):
+                        if attrib[k]['units'] == 'CODE TABLE':
+                            r[i] = _get_value_from_code_table(
+                                r[i], attrib[k]['code'], mtvn)
+                if n == 0:
+                    writer.writerow(keys)
+                else:
+                    writer.writerow(r)
+                n += 1
+    return(n)
+
+
+def synop_to_csv(bufr_files, bufr_out='-', decode_code_table=False,
+                 delimiter=';', **filters):
+    """Save SYNOP messages to a csv file"""
+    return(to_csv(_synop_keys_, iter_synop(bufr_files, **filters),
+                  bufr_out, decode_code_table))
+
+
+def synop_to_json(bufr_files, bufr_out='-',
+                  decode_code_table=False, **filters):
+    return(json(iter_synop(bufr_files, **filters), bufr_out, _synop_keys_))
 
 
 def synop(bufr_files, decode_code_table=False, **filters):
     """ Read synop messages from files
     """
-    _synop_keys_ = [
-        'masterTablesVersionNumber', 'bufrHeaderCentre',
-        'blockNumber', 'stationNumber', 'stationType', 'stationOrSiteName',
-        'year', 'month', 'day', 'hour', 'minute', 'latitude', 'longitude',
-        '#1#heightOfStationGroundAboveMeanSeaLevel',
-        '#1#heightOfBarometerAboveMeanSeaLevel', '#1#nonCoordinatePressure',
-        '#1#pressureReducedToMeanSeaLevel', '#1#3HourPressureChange',
-        '#1#characteristicOfPressureTendency', '#1#pressure',
-        '#1#airTemperature', '#1#dewpointTemperature', '#1#relativeHumidity',
-        '#1#horizontalVisibility', '#1#cloudCoverTotal',
-        '#1#heightOfBaseOfCloud', '#1#cloudType', '#2#cloudType',
-        '#3#cloudType', '#1#presentWeather', '#1#pastWeather1',
-        '#1#pastWeather2', '#1#windSpeed', '#1#windDirection']
 
     def read_synop_compressed(bufr_handle):
         ret = _od([(k, get_val(bufr_handle, k)) for k in _synop_keys_])
