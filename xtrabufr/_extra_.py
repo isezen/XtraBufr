@@ -20,9 +20,9 @@ from contextlib import contextmanager as _contextmanager
 from definitions import get_value_from_code_table as _get_value_from_code_table
 
 __all__ = ['msg_count', 'extract_subset', 'get_msg', 'decode', 'copy_msg',
-           'header', 'iter_messages', 'iter_synop', 'dump', 'synop',
-           'BufrHandle', 'new_msg_from', 'nsubsets', 'to_csv', 'synop_to_csv',
-           'synop_to_json', 'json']
+           'header', 'iter_subsets', 'iter_messages', 'iter_synop', 'dump',
+           'synop', 'BufrHandle', 'new_msg_from', 'nsubsets', 'to_csv',
+           'synop_to_csv', 'synop_to_json', 'json']
 
 
 _header_keys_ = ['edition', 'masterTableNumber', 'bufrHeaderCentre',
@@ -412,6 +412,7 @@ def json(x, file_out=None, keys=None):
     :param bufr_out: Path to output file
     :returns: Number of dumped messages or binary content of messages
     """
+    indent = None
     if file_out is None:
         if isinstance(x, BufrHandle):
             return(_json.dumps(decode(x, keys)))
@@ -422,7 +423,8 @@ def json(x, file_out=None, keys=None):
         with _open_(file_out, 'w') as f:
             r = 1
             if isinstance(x, BufrHandle):
-                _json.dump(decode(x, keys), f, ensure_ascii=False, indent=4)
+                _json.dump(decode(x, keys), f, ensure_ascii=False,
+                           indent=indent)
             elif isinstance(x, _GeneratorType) or isinstance(x, list):
                 d = [decode(h, keys) for h in x]
                 if keys is not None:
@@ -431,7 +433,7 @@ def json(x, file_out=None, keys=None):
                         for k in keys:
                             s[k].extend(i[k])
                     d = s
-                _json.dump(d, f, ensure_ascii=False, indent=4)
+                _json.dump(d, f, ensure_ascii=False, indent=indent)
                 r = len(d)
         if r == 0 and file_out != '-':
             _os.remove(file_out)
@@ -440,17 +442,25 @@ def json(x, file_out=None, keys=None):
         of BufrHandle objects')
 
 
-def iter_subsets(bufr_handle):
-    """Iterate over subsets in a BUFR message
-    :param bufr_handle: BufrHandle object
+def iter_subsets(x):
+    """Iterate over subsets in a BufrHandle or list or a Generator function
+    :param x: BufrHandle/list of BufrHandles/Generator Function
     :returns: BufrHandle Object
     """
-    for i in range(1, nsubsets(bufr_handle) + 1):
-        subset = extract_subset(bufr_handle, i)
-        if subset is None:
-            break
-        if unpack(subset):
-            yield(subset)
+    if isinstance(x, BufrHandle):
+        for i in range(1, nsubsets(x) + 1):
+            subset = extract_subset(x, i)
+            if subset is None:
+                break
+            if unpack(subset):
+                yield(subset)
+    elif isinstance(x, _GeneratorType) or isinstance(x, list):
+        for i in x:
+            for j in iter_subsets(i):
+                yield(j)
+    else:
+        raise TypeError('x must be a BufrHandle object, or a list/generator \
+            of BufrHandle objects')
 
 
 def iter_messages(bufr_files, **filters):
@@ -645,7 +655,9 @@ def synop_to_csv(bufr_files, bufr_out='-', decode_code_table=False,
 
 def synop_to_json(bufr_files, bufr_out='-',
                   decode_code_table=False, **filters):
-    return(json(iter_synop(bufr_files, **filters), bufr_out, _synop_keys_))
+    # return(json(iter_synop(bufr_files, **filters), bufr_out, _synop_keys_))
+    return(json(iter_subsets(iter_synop(bufr_files, **filters)),
+                bufr_out, _synop_keys_))
 
 
 def synop(bufr_files, decode_code_table=False, **filters):
