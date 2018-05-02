@@ -61,7 +61,7 @@ class BufrHandle(object):
         self._file_name = file_name
 
     def __repr__(self):
-        s = 'file_name: {} id: {} handle= {}'
+        s = '{{file: {} id: {} handle: {}}}'
         return(s.format(self.file_name, self.id, self.handle))
 
     def __eq__(self, other):
@@ -354,7 +354,7 @@ def msg_count(bufr_file):
 
 
 def new_msg_from(bufr_file):
-    """Message iterator for BUFR file
+    """Message generator for BUFR file
     :param bufr_file: Path to BUFR file
     :returns: BufrHandle Object
     """
@@ -585,8 +585,10 @@ def iter_synop(bufr_files, **filters):
 def get_msg(bufr_files, msg=1, subset=None):
     """Get handle(s) to the message(s)
 
-    You have to release bufr_handle(s) after use. This is a wrapper around
-    iter_messages function.
+    This is a wrapper around iter_messages function and only for completeness.
+    WARNING: Do not try to load all messages from a file by this method.
+             Instead, use generator functions. Otherwise, you will likely get
+             a memory bump.
 
     :param bufr_files: BUFR files to read
     :param msg: Id of message or a list contains Ids
@@ -628,6 +630,7 @@ def to_csv(keys, generator_fun, bufr_out='-', decode_code_table=False):
     n = 0
     with _open_(bufr_out, 'w') as f:
         writer = _csv.writer(f, delimiter=';')
+        writer.writerow(keys)
         for bh in generator_fun:
             for s in iter_subsets(bh):
                 r = [get_val(s, k) for k in keys]
@@ -638,10 +641,7 @@ def to_csv(keys, generator_fun, bufr_out='-', decode_code_table=False):
                         if attrib[k]['units'] == 'CODE TABLE':
                             r[i] = _get_value_from_code_table(
                                 r[i], attrib[k]['code'], mtvn)
-                if n == 0:
-                    writer.writerow(keys)
-                else:
-                    writer.writerow(r)
+                writer.writerow(r)
                 n += 1
     return(n)
 
