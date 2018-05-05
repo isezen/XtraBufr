@@ -15,9 +15,10 @@ from argparse import RawTextHelpFormatter as _rtformatter
 from . import (__version__, __name__, __author__, __license__, __year__)
 from .objects import Descriptors
 from ._extra_ import copy_msg
+from ._extra_ import iter_subsets
 from ._extra_ import iter_messages
 from ._extra_ import iter_synop
-from ._extra_ import synop
+from ._extra_ import synop_to
 from ._extra_ import synop_to_csv
 from ._extra_ import synop_to_json
 from ._extra_ import json
@@ -88,16 +89,17 @@ def _xbsynop_():
     decode_code_table = args.code_table
     del args.bufr_files, args.bufr_out, args.o, args.code_table
     try:
-        n = 0
-        if out == 'bufr':
-            n = dump(iter_synop(bufr_files, **args.__dict__), bufr_out)
-        elif out == 'csv':
-            n = synop_to_csv(bufr_files, bufr_out,
-                             decode_code_table, **args.__dict__)
-        elif out == 'json':
-            n = synop_to_json(bufr_files, bufr_out, decode_code_table,
-                              **args.__dict__)
-            # n = json(iter_synop(bufr_files, **args.__dict__), bufr_out)
+        # n = 0
+        # if out == 'bufr':
+        #     n = dump(iter_synop(bufr_files, **args.__dict__), bufr_out)
+        # elif out == 'csv':
+        #     n = synop_to_csv(bufr_files, bufr_out,
+        #                      decode_code_table, **args.__dict__)
+        # elif out == 'json':
+        #     n = synop_to_json(bufr_files, bufr_out, decode_code_table,
+        #                       **args.__dict__)
+        n = synop_to(bufr_files, bufr_out, decode_code_table, out,
+                     **args.__dict__)
         print(n, 'messages were filtered.')
         return(0)
     except KeyboardInterrupt:
@@ -121,6 +123,8 @@ def _xbfilter_():
              ' %(prog)s out.bufr in.bufr -hc 91 -dc 0 -y 2018\n' + \
              ' %(prog)s out.bufr in*.bufr -hc 91 -dc 0 -td 20180324\n'
     p = _create_argparser_(description, epilog)
+    p.add_argument('-o', action='store', choices=['bufr', 'csv', 'json'],
+                   default='bufr', help='Output type (default is bufr)')
     for a in [['-m', '--msg', int, 'N', 'Message Id(s)'],
               ['-s', '--subset', int, 'N', 'Subset Id(s)'],
               ['-ed', '--edition', int, 'N', 'Edition'],
@@ -218,7 +222,7 @@ def _xbcopy_():
     args = p.parse_args()
 
     if args.msg is None:
-        print('msg_id is required')
+        print('msg is required')
         return(1)
 
     try:

@@ -19,19 +19,20 @@ from types import GeneratorType as _GeneratorType
 from contextlib import contextmanager as _contextmanager
 from definitions import get_value_from_code_table as _get_value_from_code_table
 
-__all__ = ['msg_count', 'extract_subset', 'get_msg', 'decode', 'copy_msg',
-           'header', 'iter_subsets', 'iter_messages', 'iter_synop', 'dump',
-           'synop', 'BufrHandle', 'new_msg_from', 'nsubsets', 'to_csv',
-           'synop_to_csv', 'synop_to_json', 'json']
 
+__all__ = [
+    'msg_count', 'extract_subset', 'get_msg', 'decode', 'copy_msg', 'header',
+    'iter_subsets', 'iter_messages', 'iter_synop', 'dump', 'BufrHandle',
+    'new_msg_from', 'nsub', 'to_csv', 'clone', 'synop_to_csv',
+    'synop_to_json', 'json', 'iter_decode']
 
-_header_keys_ = ['edition', 'masterTableNumber', 'bufrHeaderCentre',
-                 'bufrHeaderSubCentre', 'updateSequenceNumber', 'dataCategory',
-                 'internationalDataSubCategory', 'dataSubCategory',
-                 'masterTablesVersionNumber', 'localTablesVersionNumber',
-                 'typicalYear', 'typicalMonth', 'typicalDay', 'typicalHour',
-                 'typicalMinute', 'typicalSecond', 'numberOfSubsets',
-                 'observedData', 'compressedData', 'unexpandedDescriptors']
+_header_keys_ = [
+    'edition', 'masterTableNumber', 'bufrHeaderCentre', 'bufrHeaderSubCentre',
+    'updateSequenceNumber', 'dataCategory', 'internationalDataSubCategory',
+    'dataSubCategory', 'masterTablesVersionNumber', 'localTablesVersionNumber',
+    'typicalYear', 'typicalMonth', 'typicalDay', 'typicalHour',
+    'typicalMinute', 'typicalSecond', 'numberOfSubsets', 'observedData',
+    'compressedData', 'unexpandedDescriptors']
 
 _synop_keys_ = [
     'masterTablesVersionNumber', 'bufrHeaderCentre',
@@ -52,7 +53,7 @@ class BufrHandle(object):
     """A wrapper class for handle to a BUFR message
 
     Hence, you don't have to release bufr handles. They are released
-    automatically when we don't have any reference to a it.
+    automatically if you don't have any reference to a it.
     """
 
     def __init__(self, handle, id=None, file_name=None):
@@ -61,7 +62,7 @@ class BufrHandle(object):
         self._file_name = file_name
 
     def __repr__(self):
-        s = '{{file: {} id: {} handle: {}}}'
+        s = 'BufrHandle {{file: {} id: {} handle: {}}}'
         return(s.format(self.file_name, self.id, self.handle))
 
     def __eq__(self, other):
@@ -77,6 +78,8 @@ class BufrHandle(object):
         return(new)
 
     def __deepcopy__(self, memo):
+        # new = BufrHandle(_ec.codes_clone(self.handle), self.id,
+        #                  self.file_name)
         cls = self.__class__
         new = cls.__new__(cls)
         memo[id(self)] = new
@@ -88,6 +91,7 @@ class BufrHandle(object):
         return(new)
 
     def __del__(self):
+        # print(self, 'deleted')
         _ec.codes_release(self._handle)
 
     def __exit__(self):
@@ -140,7 +144,7 @@ def get_attr(bufr_handle, key):
         k = key + '->' + a
         try:
             attributes[a] = _ec.codes_get(bufr_handle.handle, k)
-        except _ec.CodesInternalError as e:
+        except _ec.CodesInternalError:
             continue
     return(attributes)
 
@@ -189,6 +193,9 @@ def get_val(bufr_handle, key):
         size = _ec.codes_get_size(h, key)
         if size == 1:
             v = _ec.codes_get(h, key)
+            # if isinstance(v, str):
+            #     if '\xff' in v:
+            #         v = v.replace('\xff', '?')
             if isinstance(v, float):
                 if v == _ec.CODES_MISSING_DOUBLE:
                     v = None
@@ -252,6 +259,9 @@ def extract_subset(bufr_handle, subset):
     subset can be a single integer or a list yields start
     and end of subsets.
 
+    WARNING: This function modifies original message. Consider clone
+             the original message before.
+
     :param bufr_handle: BufrHandle Object
     :param subset: Number of subset
     :returns: Handle to BUFR message contains subset
@@ -260,7 +270,9 @@ def extract_subset(bufr_handle, subset):
         if len(subset) == 1:
             subset = subset[0]
 
-    unpack(bufr_handle)
+    if not unpack(bufr_handle):
+        return(None)
+
     h = bufr_handle.handle
     try:
         if isinstance(subset, list):
@@ -288,57 +300,91 @@ def header(bufr_handle):
     return(_od([(k, get_val(bufr_handle, k)) for k in _header_keys_]))
 
 
-def nsubsets(bufr_handle):
+def nsub(bufr_handle):
     """Number of subsets"""
     return(_ec.codes_get(bufr_handle.handle, 'numberOfSubsets'))
 
 
-def decode(bufr_handle, keys=None):
+def iter_decode(x, keys=None, merge=True):
+    if isinstance(x, BufrHandle):
+        yield(decode(x, keys, merge))
+    elif isinstance(x, _GeneratorType) or isinstance(x, list):
+        for h in x:
+            yield(decode(h, keys, merge))
+
+
+def decode(x, keys=None, merge=True, decode_code_table=False):
     """Decode a BufrHandle object
-    :param bufr_handle: BufrHandle object
+    :param x: BufrHandle object
     :param keys: If defined, only values of defined keys are returned
     """
-    if keys is None:
-        h = header(bufr_handle)
-    if not unpack(bufr_handle):
+
+    if isinstance(x, _GeneratorType) or isinstance(x, list):
+        if keys is None:
+            d = [decode(h, keys, merge) for h in x]
+        else:
+            if merge:
+                s = _od([(k, []) for k in keys])
+                for d in iter_decode(x, keys, merge):
+                    if d is not None:
+                        for k in keys:
+                            s[k].extend(d[k])
+                d = s
+            else:
+                s = []
+                for d in iter_decode(x, keys, merge):
+                    if d is not None:
+                        for i in d:
+                            s.append(i)
+                d = s
+
+        return(d)
+
+    if not unpack(x):
         return(None)
 
-    def get_subset(bufr_handle):
-        keys2 = [k for k in get_keys(bufr_handle) if k not in h.keys()] \
-            if keys is None else keys
-        ret = _od([(k, get_val(bufr_handle, k)) for k in keys2])
-        if keys is not None:
-            for k in ret.keys():
-                if not isinstance(ret[k], list):
-                    ret[k] = [ret[k]]
-        return(ret)
+    mtvn = get_val(x, 'masterTablesVersionNumber')
 
-    def decode_comp():
-        if keys is None:
-            return({'compressed': get_subset(bufr_handle)})
-        else:
-            return(get_subset(bufr_handle))
+    def gv(bh, k):
+        v = get_val(bh, k)
+        if decode_code_table:
+            a = get_attr(bh, k)
+            if a['units'] == 'CODE TABLE':
+                v = _get_value_from_code_table(v, a['code'], mtvn)
+        return(v)
 
-    def decode_uncomp():
-        if keys is None:
-            s = {}
-            i = 0
-            for subset in iter_subsets(bufr_handle):
-                i += 1
-                s[i] = get_subset(subset)
-            return(s)
-        else:
-            s = _od([(k, []) for k in keys])
-            for subset in iter_subsets(bufr_handle):
-                for k in keys:
-                    s[k].append(get_val(subset, k))
-            return(s)
-
-    fun = decode_comp if bufr_handle.compressed else decode_uncomp
     if keys is None:
+        h = header(x)
+
+        def decode_subset(bufr_handle):
+            keys2 = [k for k in get_keys(bufr_handle)
+                     if k not in _header_keys_]
+            return(_od([(k, gv(x, k)) for k in keys2]))
+
+        def decode_comp():
+            return({'compressed': decode_subset(x)})
+
+        def decode_uncomp():
+            return([decode_subset(s) for s in iter_subsets(x)])
+
+        fun = decode_comp if x.compressed else decode_uncomp
         return(_od([('header', h), ('subset', fun())]))
     else:
-        return(fun())
+        if nsub(x) == 1:
+            if merge:
+                return(_od([(k, [gv(x, k)]) for k in keys]))
+            else:
+                return([_od([(k, gv(x, k)) for k in keys])])
+        else:
+            if merge:
+                s = _od([(k, []) for k in keys])
+                for subset in iter_subsets(x):
+                    for k in keys:
+                        s[k].append(gv(subset, k))
+                return(s)
+            else:
+                return([_od([(k, gv(i, k)) for k in keys])
+                        for i in iter_subsets(x)])
 
 
 def msg_count(bufr_file):
@@ -401,40 +447,27 @@ def dump(x, bufr_out=None):
         of BufrHandle objects')
 
 
-def json(x, file_out=None, keys=None):
+def json(x, file_out=None, keys=None, merge=True, decode_code_table=False,
+         indent=2):
     """Convert a BufrHandle object or results of a generator function to JSON
 
     If x is BufrHandle object, bufr_out is ignored
-    If bufr_out is None, binary content of the message(s) is returned.
-    If bufr_out is '-', binary content sent to stdout.
+    If file_out is None, binary content of the message(s) is returned.
+    If file_out is '-', binary content sent to stdout.
 
     :param x: A BufrHandle object or a function generates BufrHandle objects
-    :param bufr_out: Path to output file
-    :returns: Number of dumped messages or binary content of messages
+    :param file_out: Path to output file
+    :returns: Number of processed messages or json format of message(s).
     """
-    indent = None
     if file_out is None:
-        if isinstance(x, BufrHandle):
-            return(_json.dumps(decode(x, keys)))
-        elif isinstance(x, _GeneratorType) or isinstance(x, list):
-            return(_json.dumps([decode(h, keys) for h in x]))
+        return(_json.dumps(decode(x, keys, merge, decode_code_table),
+                           ensure_ascii=False, indent=indent))
     else:
         r = 0
         with _open_(file_out, 'w') as f:
-            r = 1
-            if isinstance(x, BufrHandle):
-                _json.dump(decode(x, keys), f, ensure_ascii=False,
-                           indent=indent)
-            elif isinstance(x, _GeneratorType) or isinstance(x, list):
-                d = [decode(h, keys) for h in x]
-                if keys is not None:
-                    s = _od([(k, []) for k in keys])
-                    for i in d:
-                        for k in keys:
-                            s[k].extend(i[k])
-                    d = s
-                _json.dump(d, f, ensure_ascii=False, indent=indent)
-                r = len(d)
+            d = decode(x, keys, merge, decode_code_table)
+            _json.dump(d, f, ensure_ascii=False, indent=indent)
+            r = len(d[keys[0]]) if merge else len(d)
         if r == 0 and file_out != '-':
             _os.remove(file_out)
         return(r)
@@ -448,8 +481,9 @@ def iter_subsets(x):
     :returns: BufrHandle Object
     """
     if isinstance(x, BufrHandle):
-        for i in range(1, nsubsets(x) + 1):
-            subset = extract_subset(x, i)
+        cx = clone(x)
+        for i in range(1, nsub(x) + 1):
+            subset = extract_subset(cx, i)
             if subset is None:
                 break
             if unpack(subset):
@@ -547,7 +581,7 @@ def iter_messages(bufr_files, **filters):
     for f in bufr_files:
         for bh in iter_file(f, [[k, v] for k, v in filters.items()]):
             if subset is not None:
-                bh = extract_subset(bh, subset)
+                bh = extract_subset(clone(bh), subset)
             if bh is not None:
                 yield(bh)
 
@@ -581,6 +615,10 @@ def iter_synop(bufr_files, **filters):
         [307079, 4025, 11042]]
     return(iter_messages(bufr_files, **filters))
 
+    # for s in iter_subsets(iter_messages(bufr_files, **filters)):
+    #     if get_val(s, 'latitude') is not None:
+    #         yield(s)
+
 
 def get_msg(bufr_files, msg=1, subset=None):
     """Get handle(s) to the message(s)
@@ -610,20 +648,20 @@ def copy_msg(bufr_files, bufr_out, msg=1, subset=None):
     :param bufr_files: Path to BUFR file(s) to read
     :param bufr_out: Path to BUFR file to save
     :param msg: Id's of message(s)
-    :param subset: Id's subset(s)
+    :param subset: Id's subset(s) (or an interval)
     :returns: Number of copied messages
     """
     return(dump(iter_messages(bufr_files, **{'msg': msg, 'subset': subset}),
                 bufr_out))
 
 
-def to_csv(keys, generator_fun, bufr_out='-', decode_code_table=False):
+def to_csv(keys, gen_fun, bufr_out='-', decode_code_table=False):
     """Save values of keys to a csv file
 
     You must define keys, so each key will be saved as column into the csv.
 
     :param keys: Keys to save to csv
-    :param generator_fun: A function generates BufrHandle object(s)
+    :param gen_fun: A function generates BufrHandle object(s)
     :param bufr_out: Output file name (default is stdout)
     :param decode_code_table: If True, CODE TABLE values are saved
     :returns: None"""
@@ -631,65 +669,54 @@ def to_csv(keys, generator_fun, bufr_out='-', decode_code_table=False):
     with _open_(bufr_out, 'w') as f:
         writer = _csv.writer(f, delimiter=';')
         writer.writerow(keys)
-        for bh in generator_fun:
-            for s in iter_subsets(bh):
-                r = [get_val(s, k) for k in keys]
-                if decode_code_table:
-                    mtvn = get_val(s, 'masterTablesVersionNumber')
-                    attrib = get_attributes(s, keys)
-                    for i, k in enumerate(keys):
-                        if attrib[k]['units'] == 'CODE TABLE':
-                            r[i] = _get_value_from_code_table(
-                                r[i], attrib[k]['code'], mtvn)
-                writer.writerow(r)
-                n += 1
+        for s in gen_fun:
+            r = [get_val(s, k) for k in keys]
+            if decode_code_table:
+                mtvn = get_val(s, 'masterTablesVersionNumber')
+                attrib = get_attributes(s, keys)
+                for i, k in enumerate(keys):
+                    if attrib[k]['units'] == 'CODE TABLE':
+                        r[i] = _get_value_from_code_table(
+                            r[i], attrib[k]['code'], mtvn)
+            writer.writerow(r)
+            n += 1
     return(n)
 
 
-def synop_to_csv(bufr_files, bufr_out='-', decode_code_table=False,
-                 delimiter=';', **filters):
+def synop_to(bufr_files, bufr_out='-', decode_code_table=False, fmt='bufr',
+             **filters):
+
+    def iter():
+        for s in iter_subsets(iter_synop(bufr_files, **filters)):
+            if get_val(s, 'latitude') is not None:
+                yield(s)
+
+    n = 0
+    if fmt == 'bufr':
+        n = dump(iter_synop(bufr_files, **filters), bufr_out)
+    elif fmt == 'csv':
+        n = to_csv(_synop_keys_, iter(), bufr_out, decode_code_table)
+    elif fmt == 'json':
+        n = json(iter(), bufr_out, _synop_keys_, True, decode_code_table)
+    return(n)
+
+
+def synop_to_csv(bufr_files, bufr_out='-', decode_code_table=False, **filters):
     """Save SYNOP messages to a csv file"""
-    return(to_csv(_synop_keys_, iter_synop(bufr_files, **filters),
-                  bufr_out, decode_code_table))
+    def iter():
+        for s in iter_subsets(iter_synop(bufr_files, **filters)):
+            if get_val(s, 'latitude') is not None:
+                yield(s)
+    return(to_csv(_synop_keys_, iter(), bufr_out, decode_code_table))
 
 
 def synop_to_json(bufr_files, bufr_out='-',
                   decode_code_table=False, **filters):
-    # return(json(iter_synop(bufr_files, **filters), bufr_out, _synop_keys_))
-    return(json(iter_subsets(iter_synop(bufr_files, **filters)),
-                bufr_out, _synop_keys_))
 
+    def iter():
+        for s in iter_subsets(iter_synop(bufr_files, **filters)):
+            if get_val(s, 'latitude') is not None:
+                yield(s)
 
-def synop(bufr_files, decode_code_table=False, **filters):
-    """ Read synop messages from files
-    """
+    return(json(iter(), bufr_out, _synop_keys_))
 
-    def read_synop_compressed(bufr_handle):
-        ret = _od([(k, get_val(bufr_handle, k)) for k in _synop_keys_])
-        for k in ret.keys():
-            if not isinstance(ret[k], list):
-                ret[k] = [ret[k]]
-        return(ret)
-
-    def read_synop_uncompressed(bufr_handle):
-        ret = _od([(k, []) for k in _synop_keys_])
-        for subset in iter_subsets(bufr_handle):
-            for k in _synop_keys_:
-                ret[k].append(get_val(subset, k))
-        return(ret)
-
-    for bufr_handle in iter_synop(bufr_files, **filters):
-        if unpack(bufr_handle):
-            attrib = get_attributes(bufr_handle, _synop_keys_)
-            # read = read_synop_compressed if bufr_handle.compressed \
-            #     else read_synop_uncompressed
-            # r = read(bufr_handle)
-            r = decode(bufr_handle, _synop_keys_)
-            if decode_code_table:
-                mtvn = get_val(bufr_handle, 'masterTablesVersionNumber')
-                for k in r.keys():
-                    if attrib[k]['units'] == 'CODE TABLE':
-                        r[k] = _get_value_from_code_table(
-                            r[k], attrib[k]['code'], mtvn)
-
-            yield r
