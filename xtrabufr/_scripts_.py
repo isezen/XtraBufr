@@ -157,9 +157,16 @@ def _xbfilter_():
     args = p.parse_args()
     bufr_files = args.bufr_files
     bufr_out = args.bufr_out
-    del args.bufr_files, args.bufr_out
+    fmt = args.o
+    del args.bufr_files, args.bufr_out, args.o
     try:
-        n = dump(iter_messages(bufr_files, **args.__dict__), bufr_out)
+        # n = dump(iter_messages(bufr_files, **args.__dict__), bufr_out)
+        n = 0
+        if fmt == 'bufr':
+            n = dump(iter_messages(bufr_files, **args.__dict__), bufr_out)
+        elif fmt == 'json':
+            n = json(iter_messages(bufr_files, **args.__dict__), bufr_out)
+        return(n)
         print(n, 'messages were filtered.')
         return(0)
     except KeyboardInterrupt:

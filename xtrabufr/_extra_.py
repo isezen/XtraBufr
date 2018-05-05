@@ -78,8 +78,6 @@ class BufrHandle(object):
         return(new)
 
     def __deepcopy__(self, memo):
-        # new = BufrHandle(_ec.codes_clone(self.handle), self.id,
-        #                  self.file_name)
         cls = self.__class__
         new = cls.__new__(cls)
         memo[id(self)] = new
@@ -313,7 +311,7 @@ def iter_decode(x, keys=None, merge=True):
             yield(decode(h, keys, merge))
 
 
-def decode(x, keys=None, merge=True, decode_code_table=False):
+def decode(x, keys=None, merge=False, decode_code_table=False):
     """Decode a BufrHandle object
     :param x: BufrHandle object
     :param keys: If defined, only values of defined keys are returned
@@ -447,7 +445,7 @@ def dump(x, bufr_out=None):
         of BufrHandle objects')
 
 
-def json(x, file_out=None, keys=None, merge=True, decode_code_table=False,
+def json(x, file_out=None, keys=None, merge=False, decode_code_table=False,
          indent=2):
     """Convert a BufrHandle object or results of a generator function to JSON
 
